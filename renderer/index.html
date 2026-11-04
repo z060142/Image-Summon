@@ -1,0 +1,225 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data: file:; style-src 'self' 'unsafe-inline'; script-src 'self'" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Image Summon 設定</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <aside class="side">
+    <div class="brand">
+      <img src="../assets/icon.png" alt="" />
+      <div>
+        <div class="brand-name">Image Summon</div>
+        <div class="brand-sub" id="version"></div>
+      </div>
+    </div>
+    <nav>
+      <button class="nav active" data-page="gen">🎨 生成方式</button>
+      <button class="nav" data-page="agents">🔌 連接 Agent</button>
+      <button class="nav" data-page="history">🕘 生成紀錄 <span class="badge" id="active-badge" hidden></span></button>
+      <button class="nav" data-page="general">⚙️ 一般設定</button>
+    </nav>
+    <div class="server-pill" id="server-pill"></div>
+  </aside>
+
+  <main>
+    <!-- ============ 生成方式 ============ -->
+    <section class="page active" id="page-gen">
+      <header class="page-head">
+        <h1>生成方式</h1>
+        <p class="muted">三選一：所有連線的 agent 都會使用這裡選定的方式。切換後會即時通知 agent 更新工具規格。</p>
+      </header>
+
+      <div class="modes" id="modes">
+        <button class="mode" data-mode="codex">
+          <div class="mode-icon">⌘</div>
+          <div class="mode-title">Codex CLI 轉發</div>
+          <div class="mode-desc">把請求轉給本機 <code>codex exec</code>，使用 Codex 內建生圖，成果再回傳 agent</div>
+        </button>
+        <button class="mode" data-mode="openrouter">
+          <div class="mode-icon">◎</div>
+          <div class="mode-title">OpenRouter</div>
+          <div class="mode-desc">用 OpenRouter 帳號登入自動取得金鑰，生圖模型清單即時從 OpenRouter 取得</div>
+        </button>
+        <button class="mode" data-mode="custom">
+          <div class="mode-icon">⚙</div>
+          <div class="mode-title">自訂 API</div>
+          <div class="mode-desc">自訂供應商、API Key 與模型（OpenAI / Gemini / OpenRouter 相容格式）</div>
+        </button>
+      </div>
+
+      <!-- Codex -->
+      <div class="panel" data-panel="codex">
+        <div class="card">
+          <div class="card-head"><h2>Codex 狀態</h2><button class="btn ghost" id="codex-check">重新檢查</button></div>
+          <div id="codex-status" class="status-box">檢查中…</div>
+          <p class="hint">尚未登入時，請在終端機執行 <code>codex login</code>。生圖會消耗 Codex 額度。</p>
+        </div>
+        <div class="card">
+          <h2>Codex 設定</h2>
+          <div class="grid2">
+            <label class="field span2">codex 執行檔路徑（留空自動偵測）
+              <div class="row"><input id="codex-path" placeholder="自動偵測" /><button class="btn ghost" id="codex-browse">瀏覽…</button></div>
+            </label>
+            <label class="field">模型（選填，-m）<input id="codex-model" placeholder="使用 codex 預設" /></label>
+            <label class="field">逾時（秒）<input id="codex-timeout" type="number" min="30" max="3600" /></label>
+            <label class="field span2">額外參數（選填）<input id="codex-extra" placeholder='例如 -c model_reasoning_effort="low"' /></label>
+          </div>
+          <div class="actions"><button class="btn primary" id="codex-save">儲存</button></div>
+        </div>
+      </div>
+
+      <!-- OpenRouter -->
+      <div class="panel" data-panel="openrouter">
+        <div class="card">
+          <div class="card-head"><h2>OpenRouter 帳號</h2><span id="or-key-state" class="chip"></span></div>
+          <div class="row wrap">
+            <button class="btn primary" id="or-login">使用 OpenRouter 登入</button>
+            <button class="btn ghost" id="or-cancel" hidden>取消等待</button>
+            <button class="btn danger ghost" id="or-logout">清除金鑰</button>
+            <span class="muted" id="or-key-info"></span>
+          </div>
+          <details class="sub">
+            <summary>或手動貼上 API Key</summary>
+            <div class="row"><input id="or-manual-key" type="password" placeholder="sk-or-v1-…" /><button class="btn" id="or-manual-save">儲存金鑰</button></div>
+          </details>
+          <p class="hint">登入使用 OAuth PKCE：瀏覽器授權後，OpenRouter 會為 Image Summon 建立專屬金鑰，並以 Windows DPAPI 加密存在本機。</p>
+        </div>
+        <div class="card">
+          <div class="card-head"><h2>生圖模型</h2><button class="btn ghost" id="or-refresh">重新整理清單</button></div>
+          <input id="or-filter" placeholder="搜尋模型名稱或 ID…" />
+          <div class="model-list" id="or-models"></div>
+        </div>
+        <div class="card">
+          <h2>預設參數 <span class="muted small">（agent 未指定時使用）</span></h2>
+          <div class="grid3">
+            <label class="field">解析度<select id="or-def-res"></select></label>
+            <label class="field">畫面比例<select id="or-def-ar"></select></label>
+            <label class="field">品質<select id="or-def-q"></select></label>
+          </div>
+          <div class="actions"><button class="btn primary" id="or-save">儲存</button></div>
+        </div>
+      </div>
+
+      <!-- Custom -->
+      <div class="panel" data-panel="custom">
+        <div class="card">
+          <h2>供應商</h2>
+          <div class="grid2">
+            <label class="field">顯示名稱<input id="cu-name" placeholder="例如 OpenAI" /></label>
+            <label class="field">API 格式
+              <select id="cu-format">
+                <option value="openai-images">OpenAI Images API（/images/generations、/images/edits）</option>
+                <option value="gemini">Google Gemini（generateContent）</option>
+                <option value="openrouter-images">OpenRouter 相容 Images API（/images）</option>
+                <option value="openai-chat">OpenAI 相容 Chat（modalities: image）</option>
+              </select>
+            </label>
+            <label class="field span2">Base URL<input id="cu-base" placeholder="https://api.openai.com/v1" /></label>
+            <label class="field">API Key<input id="cu-key" type="password" placeholder="" /></label>
+            <label class="field">模型 ID<input id="cu-model" placeholder="gpt-image-2" /></label>
+          </div>
+        </div>
+        <div class="card">
+          <h2>能力規格 <span class="muted small">（決定 agent 能選的參數）</span></h2>
+          <div class="field">解析度（畫質）<div class="chips" id="cu-res"></div>
+            <input id="cu-res-extra" placeholder="額外解析度，逗號分隔，可填像素如 1536x1024" />
+          </div>
+          <div class="field">畫面比例<div class="chips" id="cu-ar"></div></div>
+          <div class="field">品質<div class="chips" id="cu-q"></div></div>
+          <div class="grid3">
+            <label class="field">單次最多張數<input id="cu-maxn" type="number" min="1" max="10" /></label>
+            <label class="field">最多參考圖片<input id="cu-maxin" type="number" min="0" max="16" /></label>
+            <span></span>
+            <label class="field">預設解析度<select id="cu-def-res"></select></label>
+            <label class="field">預設比例<select id="cu-def-ar"></select></label>
+            <label class="field">預設品質<select id="cu-def-q"></select></label>
+          </div>
+          <details class="sub">
+            <summary>進階：額外 Headers / Body（JSON）</summary>
+            <div class="grid2">
+              <label class="field">Headers<textarea id="cu-xh" rows="3" placeholder='{"X-Custom": "value"}'></textarea></label>
+              <label class="field">Body<textarea id="cu-xb" rows="3" placeholder='{"moderation": "low"}'></textarea></label>
+            </div>
+          </details>
+          <div class="actions"><button class="btn primary" id="cu-save">儲存</button></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-head"><h2>Agent 目前會看到的規格</h2><span class="chip" id="caps-ready"></span></div>
+        <div id="caps" class="caps"></div>
+      </div>
+
+      <div class="card">
+        <h2>快速測試</h2>
+        <textarea id="test-prompt" rows="2" placeholder="輸入提示詞測試目前的生成方式，例如：一隻戴著太空頭盔的橘貓，水彩風格"></textarea>
+        <div class="row wrap" id="test-opts"></div>
+        <div class="actions"><button class="btn primary" id="test-run">生成</button></div>
+      </div>
+    </section>
+
+    <!-- ============ 連接 Agent ============ -->
+    <section class="page" id="page-agents">
+      <header class="page-head">
+        <h1>連接 Agent</h1>
+        <p class="muted">Image Summon 在本機提供 MCP 伺服器（Streamable HTTP），所有 agent 都連到同一個常駐實例。</p>
+      </header>
+      <div class="card">
+        <h2>MCP 端點</h2>
+        <div class="row"><code class="url" id="mcp-url"></code><button class="btn ghost" data-copy="#mcp-url">複製</button></div>
+        <h3>目前連線中的 agent</h3>
+        <div id="clients" class="muted">—</div>
+      </div>
+      <div class="card">
+        <div class="card-head"><h2>Claude Code</h2><span class="chip" id="cc-state"></span></div>
+        <p class="muted">以 user scope 註冊 HTTP MCP 伺服器，所有專案都能使用。</p>
+        <div class="row wrap"><button class="btn primary" id="cc-install">註冊到 Claude Code</button><button class="btn ghost danger" id="cc-remove">移除</button></div>
+        <div class="row"><code class="url" id="cc-cmd"></code><button class="btn ghost" data-copy="#cc-cmd">複製</button></div>
+      </div>
+      <div class="card">
+        <div class="card-head"><h2>Claude Desktop</h2><span class="chip" id="cd-state"></span></div>
+        <p class="muted">寫入 <code>claude_desktop_config.json</code>（會先備份），透過內建 stdio 橋接器連到本服務。完成後請完全結束並重新開啟 Claude Desktop。</p>
+        <div class="row wrap"><button class="btn primary" id="cd-install">註冊到 Claude Desktop</button><button class="btn ghost danger" id="cd-remove">移除</button></div>
+        <div id="cd-files" class="small muted"></div>
+        <details class="sub"><summary>手動設定 JSON</summary><pre id="cd-json"></pre><button class="btn ghost" data-copy="#cd-json">複製</button></details>
+      </div>
+    </section>
+
+    <!-- ============ 紀錄 ============ -->
+    <section class="page" id="page-history">
+      <header class="page-head row between">
+        <div><h1>生成紀錄</h1><p class="muted">本次啟動以來的生成工作（最多 50 筆）。</p></div>
+        <button class="btn ghost" id="open-out">開啟輸出資料夾</button>
+      </header>
+      <div id="jobs" class="jobs"></div>
+    </section>
+
+    <!-- ============ 一般 ============ -->
+    <section class="page" id="page-general">
+      <header class="page-head"><h1>一般設定</h1></header>
+      <div class="card">
+        <div class="grid2">
+          <label class="field span2">輸出資料夾
+            <div class="row"><input id="g-out" /><button class="btn ghost" id="g-out-browse">瀏覽…</button></div>
+          </label>
+          <label class="field">MCP 連接埠<input id="g-port" type="number" min="1024" max="65535" /></label>
+          <label class="field">同時生成上限<input id="g-conc" type="number" min="1" max="10" /></label>
+          <label class="field">預覽圖最大邊長（px）<input id="g-prev" type="number" min="256" max="2048" step="64" /></label>
+          <span></span>
+          <label class="check"><input type="checkbox" id="g-auto" /> 開機時自動啟動（常駐系統匣）</label>
+          <label class="check"><input type="checkbox" id="g-incprev" /> 回傳結果時附上預覽圖給 agent</label>
+        </div>
+        <p class="hint">變更連接埠後，需要重新註冊 Claude Code / Claude Desktop。</p>
+        <div class="actions"><button class="btn primary" id="g-save">儲存</button></div>
+      </div>
+    </section>
+  </main>
+
+  <div id="toast" class="toast" hidden></div>
+  <script src="app.js"></script>
+</body>
+</html>

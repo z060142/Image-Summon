@@ -1,0 +1,83 @@
+{
+  "name": "image-summon",
+  "version": "1.0.0",
+  "description": "Image Summon — 系統匣常駐的 AI 圖片生成 MCP 伺服器（Claude Desktop / Claude Code）",
+  "main": "dist/main/main.js",
+  "scripts": {
+    "icons": "node scripts/make-icons.mjs",
+    "build": "tsc -p .",
+    "start": "npm run build && electron .",
+    "dist": "npm run icons && npm run build && electron-builder --win nsis --x64"
+  },
+  "author": "z060142",
+  "license": "MIT",
+  "homepage": "https://github.com/z060142/Image-Summon",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/z060142/Image-Summon.git"
+  },
+  "bugs": {
+    "url": "https://github.com/z060142/Image-Summon/issues"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.5",
+    "electron": "^45.2.2",
+    "electron-builder": "^26.18.0",
+    "typescript": "^7.0.2"
+  },
+  "build": {
+    "appId": "org.harumiya.imagesummon",
+    "productName": "Image Summon",
+    "copyright": "Copyright (c) 2026 z060142",
+    "directories": {
+      "output": "release",
+      "buildResources": "build"
+    },
+    "files": [
+      "dist/**",
+      "renderer/**",
+      "assets/**",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "bridge",
+        "to": "bridge"
+      },
+      {
+        "from": "assets",
+        "to": "assets"
+      }
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "assets/icon.ico",
+      "executableName": "ImageSummon"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Image Summon",
+      "runAfterFinish": true,
+      "include": "build/installer.nsh",
+      "installerIcon": "assets/icon.ico",
+      "uninstallerIcon": "assets/icon.ico",
+      "uninstallDisplayName": "Image Summon"
+    },
+    "electronDist": "node_modules/electron/dist",
+    "electronVersion": "45.2.2"
+  }
+}
