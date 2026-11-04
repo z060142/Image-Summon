@@ -40,6 +40,7 @@
       "dist/**",
       "renderer/**",
       "assets/**",
+      "!assets/source/**",
       "package.json"
     ],
     "extraResources": [
@@ -49,7 +50,11 @@
       },
       {
         "from": "assets",
-        "to": "assets"
+        "to": "assets",
+        "filter": [
+          "**/*",
+          "!source/**"
+        ]
       }
     ],
     "win": {

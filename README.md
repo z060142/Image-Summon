@@ -71,7 +71,7 @@ npm run dist         # 產生 release\Image Summon Setup <版本>.exe
 - `src/main/`：主程序（`main.ts` 系統匣/視窗/IPC、`server.ts` HTTP + MCP 工作階段、`mcp.ts` 工具、`spec.ts` 動態規格、`jobs.ts` 工作佇列、`providers/` 三種生成方式、`oauth.ts`、`integrations.ts`）
 - `renderer/`：設定頁（純 HTML/CSS/JS，contextIsolation + sandbox）
 - `bridge/bridge.js`：零相依的 stdio ↔ Streamable HTTP 橋接器
-- `scripts/make-icons.mjs`：產生圖示（無外部相依）
+- `scripts/make-icons.mjs`：從 `assets/source/icon-art.png` 產生 `.ico`、各尺寸 PNG 與系統匣圖示（裁切、面積平均縮圖、抗鋸齒圓角遮罩、「生成中」橘點），無外部相依。原圖是用 Image Summon 自己（Codex 模式）生成的；換掉這張圖再執行 `npm run icons` 即可更新全部圖示。
 - 開發用：`electron . --capture=<資料夾>` 會把設定頁各分頁截圖到該資料夾。
 
 設定檔位於 `%APPDATA%\image-summon\settings.json`，圖片預設輸出到 `圖片\Image Summon`。
