@@ -86,7 +86,7 @@
             <summary>或手動貼上 API Key</summary>
             <div class="row"><input id="or-manual-key" type="password" placeholder="sk-or-v1-…" /><button class="btn" id="or-manual-save">儲存金鑰</button></div>
           </details>
-          <p class="hint">登入使用 OAuth PKCE：瀏覽器授權後，OpenRouter 會為 Image Summon 建立專屬金鑰，並以 Windows DPAPI 加密存在本機。</p>
+          <p class="hint secret-hint">登入使用 OAuth PKCE：瀏覽器授權後，OpenRouter 會直接為 Image Summon 建立一把專屬金鑰，你不需要複製貼上；金鑰以 Windows DPAPI 加密，只有你的 Windows 帳號能解開，agent 和 Claude 設定檔都不會拿到它。</p>
         </div>
         <div class="card">
           <div class="card-head"><h2>生圖模型</h2><button class="btn ghost" id="or-refresh">重新整理清單</button></div>
@@ -119,7 +119,7 @@
               </select>
             </label>
             <label class="field span2">Base URL<input id="cu-base" placeholder="https://api.openai.com/v1" /></label>
-            <label class="field">API Key<input id="cu-key" type="password" placeholder="" /></label>
+            <label class="field">API Key<input id="cu-key" type="password" placeholder="" /><span class="small muted secret-hint">以 Windows DPAPI 加密保存，agent 看不到。</span></label>
             <label class="field">模型 ID<input id="cu-model" placeholder="gpt-image-2" /></label>
           </div>
         </div>

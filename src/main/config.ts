@@ -140,22 +140,32 @@ class SettingsStore extends EventEmitter {
 
 export const settings = new SettingsStore();
 
-// ---- secrets (Windows DPAPI via Electron safeStorage) ----
+// ---- secrets ----
+// Keys are only ever written to disk encrypted with Windows DPAPI (bound to this Windows user).
+// If DPAPI is unavailable the key is kept in memory for this session only — never in plain text.
+const memorySecrets = new Map<string, string>();
+
 export function encryptSecret(plain: string): string {
   if (!plain) return '';
   if (safeStorage.isEncryptionAvailable()) return 'dpapi:' + safeStorage.encryptString(plain).toString('base64');
-  return 'plain:' + Buffer.from(plain, 'utf8').toString('base64');
+  const id = `mem:${Date.now().toString(36)}${Math.random().toString(36).slice(2)}`;
+  memorySecrets.set(id, plain);
+  return id;
 }
 
 export function decryptSecret(enc?: string): string {
   if (!enc) return '';
   try {
     if (enc.startsWith('dpapi:')) return safeStorage.decryptString(Buffer.from(enc.slice(6), 'base64'));
-    if (enc.startsWith('plain:')) return Buffer.from(enc.slice(6), 'base64').toString('utf8');
+    if (enc.startsWith('mem:')) return memorySecrets.get(enc) ?? '';
   } catch {
-    /* corrupted */
+    /* corrupted or encrypted by another Windows user */
   }
   return '';
+}
+
+export function secretStorageMode(): 'dpapi' | 'memory' {
+  return safeStorage.isEncryptionAvailable() ? 'dpapi' : 'memory';
 }
 
 export function maskSecret(plain: string): string {

@@ -1,7 +1,7 @@
 import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, Notification, shell, Tray } from 'electron';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { decryptSecret, encryptSecret, maskSecret, Mode, settings } from './config';
+import { decryptSecret, encryptSecret, maskSecret, Mode, secretStorageMode, settings } from './config';
 import { thumbnailDataUrl } from './images';
 import {
   claudeCodeCommand, claudeCodeStatus, claudeDesktopStatus, desktopEntry, installClaudeCode, installClaudeDesktop,
@@ -238,6 +238,7 @@ function registerIpc() {
     url: host.mcpUrl,
     serverError,
     packaged: app.isPackaged,
+    secretStorage: secretStorageMode(),
     claudeCodeCommand: claudeCodeCommand(host.mcpUrl),
     desktopJson: JSON.stringify({ mcpServers: { [SERVER_NAME]: desktopEntry(host.mcpUrl) } }, null, 2),
     clients: host.clients(),

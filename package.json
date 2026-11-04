@@ -1,6 +1,6 @@
 {
   "name": "image-summon",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Image Summon — 系統匣常駐的 AI 圖片生成 MCP 伺服器（Claude Desktop / Claude Code）",
   "main": "dist/main/main.js",
   "scripts": {
@@ -80,7 +80,8 @@
       "include": "build/installer.nsh",
       "installerIcon": "assets/icon.ico",
       "uninstallerIcon": "assets/icon.ico",
-      "uninstallDisplayName": "Image Summon"
+      "uninstallDisplayName": "Image Summon",
+      "deleteAppDataOnUninstall": true
     },
     "electronDist": "node_modules/electron/dist",
     "electronVersion": "45.2.2"

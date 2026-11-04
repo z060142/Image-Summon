@@ -14,6 +14,15 @@ Claude Desktop ──stdio──▶ bridge.js ──HTTP──▶ Image Summon�
               （雙向轉發）            /api/v1/images          OpenRouter 相容 / Chat
 ```
 
+## 設計原則
+
+1. **盡可能好設定**：裝好就能用。agent 一鍵註冊、codex 自動偵測、OpenRouter 用瀏覽器登入、模型能力自動帶給 agent，不必手動改設定檔或設定環境變數。
+2. **盡可能不在電腦裡留下 API key**：
+   - **Codex 模式**完全不需要金鑰，登入由 Codex 自己管理。
+   - **OpenRouter 模式**建議用「使用 OpenRouter 登入」，自動取得一把專屬金鑰，不必複製貼上；不想用 OAuth 也可以手動貼上 API key。
+   - **自訂 API** 就填你自己的 API key。
+   - 不論哪種方式，金鑰都只以 Windows DPAPI 加密存在本機一處；agent 和 Claude 的設定檔裡只有 MCP 網址，沒有金鑰。解除安裝時會一併清除。
+
 ## 功能
 
 | 需求 | 實作 |

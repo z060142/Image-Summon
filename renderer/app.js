@@ -351,6 +351,7 @@ async function loadInfo() {
   $('#version').textContent = 'v' + info.version + (info.packaged ? '' : ' · dev');
   $('#mcp-url').textContent = info.url;
   $('#cc-cmd').textContent = info.claudeCodeCommand;
+  if (info.secretStorage === 'memory') $('.secret-hint').forEach((el) => { el.textContent = '⚠ 此系統無法使用 Windows 加密儲存，金鑰只會保存在記憶體，結束 Image Summon 後需要重新登入 / 輸入。'; });
   $('#cd-json').textContent = info.desktopJson;
   const pill = $('#server-pill');
   pill.className = 'server-pill' + (info.serverError ? ' err' : '');
