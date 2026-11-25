@@ -223,6 +223,7 @@ function jobResult(job: Job): CallToolResult {
     lines.push(`- ${img.path}${img.width ? `  (${img.width}×${img.height})` : ''}${img.copy_path ? `\n  副本：${img.copy_path}` : ''}`);
   }
   if (job.costUsd !== undefined) lines.push(`費用：約 $${job.costUsd.toFixed(4)}`);
+  for (const w of job.warnings ?? []) lines.push(`⚠ ${w}`);
   content.push({ type: 'text', text: lines.join('\n') });
   for (const img of job.images) {
     if (s.general.includePreview) {

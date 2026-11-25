@@ -27,6 +27,7 @@ export interface Job {
   errorDetail?: string;
   costUsd?: number;
   text?: string;
+  warnings?: string[];
   controller: AbortController;
   done: Promise<Job>;
 }
@@ -108,7 +109,7 @@ class JobManager extends EventEmitter {
       prompt: a.prompt,
       mode: caps.mode,
       model: caps.model,
-      params: { resolution: a.resolution, aspect_ratio: a.aspectRatio, quality: a.quality, n: a.n, inputs: a.inputs.length },
+      params: { resolution: a.resolution, aspect_ratio: a.aspectRatio, quality: a.quality, background: a.background, n: a.n, inputs: a.inputs.length },
       client,
       progress: '排隊中',
       images: [],
@@ -150,6 +151,7 @@ class JobManager extends EventEmitter {
       job.model = result.model;
       job.costUsd = result.costUsd;
       job.text = result.text;
+      job.warnings = result.warnings?.length ? result.warnings : undefined;
       job.images = saveImages(result.images, s.general.outputDir, a.prompt, a.outputPath);
       job.status = 'done';
       job.progress = '完成';
@@ -195,6 +197,7 @@ export function publicJob(j: Job) {
     images: j.images,
     progress: j.progress,
     ...(j.error ? { error: j.error } : {}),
+    ...(j.warnings ? { warnings: j.warnings } : {}),
     ...(j.costUsd !== undefined ? { cost_usd: j.costUsd } : {}),
   };
 }

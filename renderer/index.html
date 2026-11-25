@@ -19,6 +19,7 @@
     <nav>
       <button class="nav active" data-page="gen">🎨 生成方式</button>
       <button class="nav" data-page="agents">🔌 連接 Agent</button>
+      <button class="nav" data-page="skills">🧩 自訂技能</button>
       <button class="nav" data-page="history">🕘 生成紀錄 <span class="badge" id="active-badge" hidden></span></button>
       <button class="nav" data-page="general">⚙️ 一般設定</button>
     </nav>
@@ -189,9 +190,66 @@
       </div>
       <div class="card">
         <div class="card-head"><h2>Skills（透過 MCP 提供）</h2><span class="chip" id="sk-state"></span></div>
-        <p class="muted">Image Summon 以 MCP Skills 擴充（<code>io.modelcontextprotocol/skills</code>）把技能說明發給所有連線的 agent：內建的 <code>image-summon</code> 技能會教 agent 怎麼寫提示詞、選參數，並附上目前生成器的規格。你也可以把自己的技能（例如品牌風格指南）放進技能資料夾，每個技能一個子資料夾，內含 <code>SKILL.md</code>（frontmatter 需有 <code>name</code>＝資料夾名稱與 <code>description</code>）。</p>
+        <p class="muted">連線的 agent 會透過 MCP Skills 擴充收到 Image Summon 的技能（內建使用說明＋你的自訂技能）。</p>
+        <div class="row"><button class="btn" data-goto="skills">管理自訂技能 →</button></div>
+      </div>
+    </section>
+
+    <!-- ============ 自訂技能 ============ -->
+    <section class="page" id="page-skills">
+      <header class="page-head row between">
+        <div>
+          <h1>自訂技能</h1>
+          <p class="muted">把風格指南、公司 Logo、品牌色、角色設定等知識做成技能，透過 MCP 發給所有連線的 agent。agent 生成圖片時會參考這些內容；附加的圖片（例如 Logo）也能直接當作參考圖片使用。</p>
+        </div>
+      </header>
+      <div class="skills-layout">
+        <div class="card sk-side">
+          <div class="card-head"><h2>技能</h2><span class="chip" id="sk-count"></span></div>
+          <div id="sk-items" class="sk-items"></div>
+          <div class="sk-new">
+            <button class="btn primary" id="sk-new">＋ 新增技能</button>
+            <div class="small muted">從範本開始：</div>
+            <div class="row wrap">
+              <button class="btn ghost small" data-template="style">🎨 風格指南</button>
+              <button class="btn ghost small" data-template="logo">🏷️ 公司 Logo</button>
+              <button class="btn ghost small" data-template="character">🧑 角色設定</button>
+            </div>
+          </div>
+        </div>
+        <div class="card sk-editor" id="sk-editor">
+          <div id="sk-empty" class="muted">選擇左側的技能來編輯，或新增一個。</div>
+          <div id="sk-form" hidden>
+            <div class="card-head"><h2 id="sk-title">新增技能</h2><span class="chip" id="sk-badge"></span></div>
+            <label class="field">名稱（資料夾名稱，只能用小寫英文、數字、連字號）
+              <input id="sk-name" placeholder="brand-style" spellcheck="false" />
+            </label>
+            <label class="field">說明（agent 依這段判斷何時使用，請寫清楚「什麼情況下要用」）
+              <textarea id="sk-desc" rows="2" placeholder="Acme 公司的品牌視覺規範。生成任何 Acme 相關的圖片、橫幅、社群貼文時使用。"></textarea>
+            </label>
+            <label class="field">內容（Markdown：風格描述、色碼、要避免的東西、範例提示詞…）
+              <textarea id="sk-body" rows="14" class="mono" spellcheck="false"></textarea>
+            </label>
+            <div class="field">附加檔案（Logo、參考圖、色票…；圖片可被 agent 當作 input_images 使用）
+              <div id="sk-files" class="sk-files"></div>
+              <div class="row wrap"><button class="btn" id="sk-add-files">加入檔案…</button><span class="small muted" id="sk-files-hint"></span></div>
+            </div>
+            <div id="sk-readonly" class="hint" hidden></div>
+            <div class="actions">
+              <button class="btn ghost danger" id="sk-delete">刪除技能</button>
+              <button class="btn ghost" id="sk-open-one">開啟資料夾</button>
+              <span style="flex:1"></span>
+              <button class="btn ghost" id="sk-cancel">取消</button>
+              <button class="btn primary" id="sk-save">儲存</button>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-head"><h2>發佈狀態</h2><span class="chip" id="sk-pub-state"></span></div>
+        <p class="muted small">以下是 agent 透過 <code>skills/list</code> 實際看到的技能。也可以直接在技能資料夾裡手動放入技能（每個技能一個子資料夾，內含 <code>SKILL.md</code>），再按「重新載入」。</p>
         <div id="sk-list" class="small"></div>
-        <div id="sk-warn" class="small err"></div>
+        <div id="sk-warn" class="small"></div>
         <div class="row wrap"><button class="btn" id="sk-open">開啟技能資料夾</button><button class="btn ghost" id="sk-reload">重新載入</button></div>
         <div class="row"><code class="url" id="sk-dir"></code></div>
       </div>

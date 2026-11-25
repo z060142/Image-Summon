@@ -64,6 +64,8 @@ Prefer one clear image per call over a collage. For UI assets ask for "centered,
 - \`background: transparent\` needs \`output_format\` png or webp.
 - \`n > 1\` produces variations to choose from; cost scales with \`n\`.
 - **Codex mode** has no size/aspect parameters — describe the framing ("wide 16:9 banner") in the prompt.
+  It does support \`background: transparent\` natively (real alpha PNG): describe only the isolated subject and
+  leave out any backdrop, floor or scene, or the background may come back opaque. Check the result for warnings.
 
 ## Long generations
 

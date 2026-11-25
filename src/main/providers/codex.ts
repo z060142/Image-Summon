@@ -3,6 +3,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { settings } from '../config';
+import { pngAlphaStats } from '../png';
 import { GenImage, GenRequest, GenResult, Provider, ProviderError, sniffMime } from './common';
 
 const IMG_RE = /\.(png|jpe?g|webp)$/i;
@@ -112,6 +113,7 @@ export class CodexProvider implements Provider {
       '',
       n > 1 ? `Generate ${n} separate images.` : 'Generate exactly one image.',
       imagePaths.length ? 'Use the attached image(s) as reference input.' : '',
+      ...backgroundInstructions(req.background),
       'Do not run shell commands or modify files. When finished, reply with the absolute path(s) of the generated image file(s).',
     ].filter(Boolean).join('\n');
 
@@ -185,8 +187,44 @@ export class CodexProvider implements Provider {
       const data = fs.readFileSync(f);
       return { data, mime: sniffMime(data) };
     });
-    return { images, model: cfg.model.trim() ? `codex (${cfg.model.trim()})` : 'codex imagegen', text: finalText };
+    const warnings = req.background === 'transparent' ? checkTransparency(images) : [];
+    return { images, model: cfg.model.trim() ? `codex (${cfg.model.trim()})` : 'codex imagegen', text: finalText, warnings };
   }
+}
+
+/*
+ * Native transparency: Codex's built-in image_gen tool can emit a real alpha channel
+ * (its bundled imagegen skill: "For transparent images, ask built-in image_gen for a transparent
+ * background and preserve the generated alpha"). No API key and no chroma-key post-processing.
+ */
+function backgroundInstructions(background?: string): string[] {
+  if (background === 'transparent') {
+    return [
+      'Transparent background required: generate the image with a genuinely transparent background using the built-in',
+      'image generation tool (if it has a transparent_background option, set it to true) and keep the alpha channel in a PNG.',
+      'Render only the isolated subject: no backdrop, floor, scene, frame, drop-shadow plate or vignette.',
+      'Never fake transparency with a checkerboard pattern, white or any solid colour.',
+    ];
+  }
+  if (background === 'opaque') return ['Use a fully opaque background (no transparency).'];
+  return [];
+}
+
+/** Verify a transparent-background request really produced alpha; warn (don't fail) otherwise. */
+function checkTransparency(images: GenImage[]): string[] {
+  const warnings: string[] = [];
+  images.forEach((img, i) => {
+    const label = images.length > 1 ? `第 ${i + 1} 張` : '圖片';
+    if (img.mime !== 'image/png') return;
+    const st = pngAlphaStats(img.data);
+    if (!st) return;
+    if (!st.hasAlphaChannel) {
+      warnings.push(`${label}沒有 alpha 通道（Codex 回傳了不透明的圖）。請更新 Codex CLI，或在提示詞中只描述主體、不要描述背景後重試。`);
+    } else if (st.transparent === 0 && (st.partial ?? 0) === 0) {
+      warnings.push(`${label}有 alpha 通道但沒有任何透明像素，背景可能沒有被去除。`);
+    }
+  });
+  return warnings;
 }
 
 function splitArgs(s: string): string[] {

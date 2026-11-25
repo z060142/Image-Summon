@@ -38,7 +38,11 @@ export function getCapabilities(s: Settings, hasKey: { openrouter: boolean; cust
   };
 
   if (s.mode === 'codex') {
-    return { ...base, provider: 'Codex CLI (gpt-image)', model: s.codex.model || 'codex default', maxN: 4, maxInputImages: 10 };
+    return {
+      ...base, provider: 'Codex CLI (gpt-image)', model: s.codex.model || 'codex default', maxN: 4, maxInputImages: 10,
+      // the built-in image_gen tool supports native transparency (real alpha PNG)
+      backgrounds: ['auto', 'transparent', 'opaque'],
+    };
   }
 
   if (s.mode === 'openrouter') {
@@ -133,7 +137,14 @@ export function generateToolSchema(c: Capabilities) {
       description: 'Rendering quality / effort (higher = slower, more expensive).' + (c.defaults.quality ? ` Default: ${c.defaults.quality}.` : ''),
     };
   }
-  if (c.backgrounds.length) props.background = { type: 'string', enum: c.backgrounds, description: 'Background handling. "transparent" requires png or webp output.' };
+  if (c.backgrounds.length) {
+    props.background = {
+      type: 'string', enum: c.backgrounds,
+      description: c.mode === 'codex'
+        ? 'Background handling. "transparent" = native transparent PNG (real alpha) from Codex; describe only the isolated subject, no backdrop.'
+        : 'Background handling. "transparent" requires png or webp output.',
+    };
+  }
   if (c.outputFormats.length) props.output_format = { type: 'string', enum: c.outputFormats, description: 'File format of the generated image.' };
   if (c.maxN > 1) props.n = { type: 'integer', minimum: 1, maximum: c.maxN, description: `Number of images to generate (1-${c.maxN}). Default 1.` };
   if (c.seed) props.seed = { type: 'integer', description: 'Seed for reproducible output.' };
@@ -171,6 +182,7 @@ export const JOB_OUTPUT_SCHEMA = {
       },
     },
     progress: { type: 'string' },
+    warnings: { type: 'array', items: { type: 'string' } },
     error: { type: 'string' },
     cost_usd: { type: 'number' },
   },
@@ -188,6 +200,10 @@ export function describeSpec(c: Capabilities, serverUrl: string): string {
   ];
   if (c.mode === 'codex') {
     lines.push('', 'Codex mode forwards the prompt (and optional reference images) to `codex exec` with its built-in image generator. Size/aspect are decided by Codex — describe the desired framing in the prompt (e.g. "wide 16:9 banner").');
+    lines.push('', '## Parameters the generate_image tool accepts now');
+    lines.push(`- background: ${c.backgrounds.join(' | ')} — "transparent" uses Codex's native transparency (real alpha PNG, no chroma key). Describe only the isolated subject.`);
+    lines.push(`- n: 1..${c.maxN}`);
+    lines.push(`- input_images: up to ${c.maxInputImages}`);
   } else {
     lines.push('', '## Parameters the generate_image tool accepts now');
     lines.push(`- resolution: ${c.resolutions.length ? c.resolutions.join(' | ') : '(not supported by this model)'}${c.defaults.resolution ? ` (default ${c.defaults.resolution})` : ''}`);

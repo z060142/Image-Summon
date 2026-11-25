@@ -2,6 +2,7 @@ import { nativeImage } from 'electron';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { mayHaveAlpha } from './png';
 import { decodeImageRef, extFor, GenImage, InputImage, ProviderError, sniffMime } from './providers/common';
 
 export async function loadInputImage(ref: string, signal?: AbortSignal): Promise<InputImage> {
@@ -108,6 +109,8 @@ export function makePreview(buf: Buffer, maxEdge: number): { data: string; mimeT
     const { width, height } = img.getSize();
     const scale = Math.min(1, maxEdge / Math.max(width, height));
     if (scale < 1) img = img.resize({ width: Math.round(width * scale), height: Math.round(height * scale), quality: 'good' });
+    // keep transparency visible: a JPEG preview would turn the cut-out background black
+    if (mayHaveAlpha(buf)) return { data: img.toPNG().toString('base64'), mimeType: 'image/png' };
     return { data: img.toJPEG(85).toString('base64'), mimeType: 'image/jpeg' };
   } catch {
     return null;

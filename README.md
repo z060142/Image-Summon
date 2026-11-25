@@ -35,6 +35,7 @@ Claude Desktop ──stdio──▶ bridge.js ──HTTP──▶ Image Summon�
 | 三選一 | 設定頁的模式卡或系統匣「生成方式」選單，同一時間只有一種生效 |
 | MCP 協議 | 以 MCP TypeScript SDK v2（`@modelcontextprotocol/server` / `node`）實作。2026-07-28 client（每個請求帶 `_meta` envelope、無工作階段）走 `createMcpHandler`；2025-11-25 以前的 client 依 `isLegacyRequest` 分流到原本的有狀態工作階段（`Mcp-Session-Id`），兩種都能收到 `list_changed` |
 | Skills via MCP | 實作 MCP Skills 擴充（SEP-2640，`io.modelcontextprotocol/skills`）：`skills/list`、`skills/get`、`skill://` 資源。內建 `image-summon` 技能，另可放入自訂技能 |
+| 原生去背 | Codex 模式支援 `background: transparent`：要求 Codex 內建的 image_gen 直接輸出帶 alpha 通道的 PNG（不需 API key、不做綠幕去背），並檢查結果是否真的有透明像素，沒有時在結果中附上警告。透明圖的預覽改用 PNG |
 | 告知 agent 命令規格 | `generate_image` 的 inputSchema 依目前模型動態產生（`resolution` 1K/2K/4K…、`aspect_ratio`、`quality`、`n`、`input_images` 上限）；切換時送出 `notifications/tools/list_changed` |
 | 安裝檔 | electron-builder NSIS：開始功能表、桌面捷徑、解除安裝項目、開機啟動 |
 
@@ -52,7 +53,10 @@ Image Summon 宣告 `io.modelcontextprotocol/skills` 擴充，支援的 client �
 
 - **`skill://image-summon/SKILL.md`**（內建）：教 agent 何時使用 Image Summon、怎麼寫提示詞、如何依用途選 `aspect_ratio` / `resolution`、用 `output_path` 把圖放進專案、`async` 長時間生成與錯誤處理。
   - `skill://image-summon/references/generator.md`：目前生成器的規格，使用者切換模式/模型時會自動重新產生並通知 agent。
-- **自訂技能**：把技能資料夾放進 `%APPDATA%\image-summon\skills\<名稱>\SKILL.md`（frontmatter 需有 `name`＝資料夾名稱、`description`），例如品牌風格指南、固定的美術方向。設定頁「連接 Agent → Skills」可開啟資料夾、重新載入並查看警告；新增/移除技能時會送出 `notifications/resources/list_changed`。
+- **自訂技能**：在設定頁「🧩 自訂技能」新增、編輯、刪除技能，用來給 agent 補充知識，例如插畫風格指南、品牌色、公司 Logo、吉祥物設定。
+  - 每個技能有名稱（小寫英文/數字/連字號，即資料夾名稱）、說明（agent 依此判斷何時使用）和 Markdown 內容；可從「風格指南」「公司 Logo」「角色設定」範本開始。
+  - 可附加檔案（Logo、參考圖、色票…），存在技能的 `assets/` 中。`SKILL.md` 會自動列出每個附件的本機絕對路徑，agent 可以直接把 Logo 等圖片放進 `generate_image` 的 `input_images`。
+  - 技能存放在 `%APPDATA%\image-summon\skills\<名稱>\`，也可以手動放入資料夾後按「重新載入」。新增/移除/改名時會送出 `notifications/resources/list_changed`。
 - 不支援 Skills 擴充的 client 仍可把它們當一般 resource 讀取；`generate_image` 的說明裡也會指向內建技能。
 
 範例（OpenRouter，`black-forest-labs/flux-3-image-klein`）時 agent 看到的參數：
@@ -100,6 +104,7 @@ npm run dist         # 產生 release\Image Summon Setup <版本>.exe
 
 - 安裝檔未做程式碼簽章，第一次執行會出現 SmartScreen 提示。
 - Codex 模式的尺寸/比例由 Codex 決定（agent 可以在提示詞中描述構圖）；一次生成大約 1–3 分鐘。
+- Codex 原生去背依賴 Codex CLI 內建 image_gen 的透明輸出（請用新版 Codex CLI）；若提示詞描述了背景/場景，仍可能回傳不透明的圖，此時結果會附上警告。
 - 解除安裝不會自動移除 Claude Desktop / Claude Code 的註冊，請先在設定頁按「移除」。
 
 ## 授權

@@ -13,6 +13,7 @@ import { cancelOpenRouterLogin, installOAuthRoute, startOpenRouterLogin } from '
 import { codexStatus, detectCodex } from './providers/codex';
 import { cacheAge, getCachedModels, keyInfo, refreshModels } from './providers/openrouter';
 import { HttpHost } from './server';
+import { addSkillFiles, deleteSkill, getSkill, listUserSkills, removeSkillFile, saveSkill } from './skillEditor';
 import { skills, userSkillsDir } from './skills';
 import { MODE_LABEL } from './spec';
 
@@ -309,6 +310,19 @@ function registerIpc() {
     await skills.reload();
     return { dir: userSkillsDir(), skills: skills.entries(), warnings: skills.warnings };
   });
+  h('skills:userList', () => listUserSkills());
+  h('skills:get', (name: string) => getSkill(name));
+  h('skills:save', (data: any) => saveSkill(data));
+  h('skills:delete', (name: string) => deleteSkill(name));
+  h('skills:addFiles', async (name: string) => {
+    const r = await dialog.showOpenDialog(win!, {
+      title: '加入檔案到技能', properties: ['openFile', 'multiSelections'],
+      filters: [{ name: '圖片與文件', extensions: ['png', 'jpg', 'jpeg', 'webp', 'gif', 'svg', 'md', 'txt', 'json', 'pdf'] }, { name: '所有檔案', extensions: ['*'] }],
+    });
+    return r.canceled ? getSkill(name) : addSkillFiles(name, r.filePaths);
+  });
+  h('skills:removeFile', (name: string, rel: string) => removeSkillFile(name, rel));
+  h('skills:openSkillDir', (name: string) => shell.openPath(getSkill(name).dir));
   h('skills:openDir', () => {
     fs.mkdirSync(userSkillsDir(), { recursive: true });
     return shell.openPath(userSkillsDir());
