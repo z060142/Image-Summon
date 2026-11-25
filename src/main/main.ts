@@ -13,8 +13,8 @@ import { cancelOpenRouterLogin, installOAuthRoute, startOpenRouterLogin } from '
 import { codexStatus, detectCodex } from './providers/codex';
 import { cacheAge, getCachedModels, keyInfo, refreshModels } from './providers/openrouter';
 import { HttpHost } from './server';
-import { addSkillFiles, deleteSkill, getSkill, listUserSkills, removeSkillFile, saveSkill } from './skillEditor';
-import { skills, userSkillsDir } from './skills';
+import { addItemFiles, deleteItem, getItem, knowledgeDir, listKnowledge, removeItemFile, saveItem } from './knowledge';
+import { skills } from './skills';
 import { MODE_LABEL } from './spec';
 
 const RUN_KEY_NAME = 'ImageSummon';
@@ -305,27 +305,27 @@ function registerIpc() {
   h('integrations:uninstall', async (target: 'desktop' | 'code') =>
     target === 'desktop' ? uninstallClaudeDesktop() : uninstallClaudeCode());
 
-  h('skills:list', () => ({ dir: userSkillsDir(), skills: skills.entries(), warnings: skills.warnings }));
-  h('skills:reload', async () => {
-    await skills.reload();
-    return { dir: userSkillsDir(), skills: skills.entries(), warnings: skills.warnings };
-  });
-  h('skills:userList', () => listUserSkills());
-  h('skills:get', (name: string) => getSkill(name));
-  h('skills:save', (data: any) => saveSkill(data));
-  h('skills:delete', (name: string) => deleteSkill(name));
-  h('skills:addFiles', async (name: string) => {
+  // Knowledge base: sub-items of the built-in image-summon skill (not separate skills).
+  const published = () => ({ dir: knowledgeDir(), skill: skills.published(), warnings: skills.warnings });
+  const changed = async <T>(v: T): Promise<T> => { await skills.reload(); return v; };
+  h('skills:published', () => published());
+  h('skills:reload', async () => { await skills.reload(); return published(); });
+  h('knowledge:list', () => listKnowledge());
+  h('knowledge:get', (name: string) => getItem(name));
+  h('knowledge:save', (data: any) => changed(saveItem(data)));
+  h('knowledge:delete', (name: string) => changed(deleteItem(name)));
+  h('knowledge:addFiles', async (name: string) => {
     const r = await dialog.showOpenDialog(win!, {
-      title: '加入檔案到技能', properties: ['openFile', 'multiSelections'],
-      filters: [{ name: '圖片與文件', extensions: ['png', 'jpg', 'jpeg', 'webp', 'gif', 'svg', 'md', 'txt', 'json', 'pdf'] }, { name: '所有檔案', extensions: ['*'] }],
+      title: '加入檔案', properties: ['openFile', 'multiSelections'],
+      filters: [{ name: '圖片與文件', extensions: ['png', 'jpg', 'jpeg', 'webp', 'gif', 'svg', 'md', 'txt', 'json'] }, { name: '所有檔案', extensions: ['*'] }],
     });
-    return r.canceled ? getSkill(name) : addSkillFiles(name, r.filePaths);
+    return r.canceled ? getItem(name) : changed(addItemFiles(name, r.filePaths));
   });
-  h('skills:removeFile', (name: string, rel: string) => removeSkillFile(name, rel));
-  h('skills:openSkillDir', (name: string) => shell.openPath(getSkill(name).dir));
-  h('skills:openDir', () => {
-    fs.mkdirSync(userSkillsDir(), { recursive: true });
-    return shell.openPath(userSkillsDir());
+  h('knowledge:removeFile', (name: string, rel: string) => changed(removeItemFile(name, rel)));
+  h('knowledge:openItemDir', (name: string) => shell.openPath(getItem(name).dir));
+  h('knowledge:openDir', () => {
+    fs.mkdirSync(knowledgeDir(), { recursive: true });
+    return shell.openPath(knowledgeDir());
   });
 
   h('jobs:list', () => jobs.list().slice(0, 50).map((j) => ({

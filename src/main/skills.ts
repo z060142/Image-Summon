@@ -4,25 +4,57 @@ import { nodeSkillFiles } from '@modelcontextprotocol/server/ext/skills/node';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { currentCapabilities } from './jobs';
+import { ITEM_FILE, knowledgeDir, KnowledgeSummary, listKnowledge, localPath } from './knowledge';
 import { describeSpec } from './spec';
 
 /*
  * Skills over MCP (SEP-2640, extension id `io.modelcontextprotocol/skills`).
  *
- * Image Summon serves one catalog to every connected agent:
- *  - the built-in `image-summon` skill (how to use the generator well), whose
- *    `references/generator.md` always reflects the generator selected in the tray;
- *  - any skills the user drops into `%APPDATA%\image-summon\skills\<name>\SKILL.md`
- *    (art-direction guides, brand style sheets, …), shared with every agent at once.
+ * Image Summon publishes exactly ONE skill, `image-summon`:
+ *   SKILL.md                         how to use the generator well + an index of the knowledge base
+ *   references/generator.md          the generator selected in the tray (regenerated on every switch)
+ *   knowledge/<item>/README.md       the user's knowledge items (style guides, logos, brand colours…)
+ *   knowledge/<item>/assets/…        their attachments
  *
- * Clients discover them with `skills/list` and read files as `skill://…` resources.
+ * Knowledge items live in %APPDATA%\image-summon\knowledge and are managed in the settings page.
+ * Clients discover the skill with `skills/list` and read files as `skill://image-summon/…` resources.
  */
 
 export const BUILTIN_SKILL = 'image-summon';
 
-const SKILL_MD = `---
+const BASE_DESCRIPTION =
+  'Generate or edit images with the local Image Summon MCP server (generate_image / get_image_job). Use whenever the user wants an ' +
+  'illustration, icon, banner, mock-up, photo, texture or any other picture created or modified, or wants generated art saved into their project.';
+
+function skillDescription(items: KnowledgeSummary[]): string {
+  if (!items.length) return BASE_DESCRIPTION;
+  let names = items.map((i) => i.name).join(', ');
+  if (names.length > 300) names = names.slice(0, 297) + '...';
+  return `${BASE_DESCRIPTION} Includes the user's image knowledge base (${names}): check it for house style, brand assets and logos before generating.`;
+}
+
+function knowledgeSection(items: KnowledgeSummary[]): string {
+  const lines = ['## Knowledge base (provided by the user)', ''];
+  if (!items.length) {
+    lines.push('The user has not added any knowledge items yet. They can add style guides, brand colours, logos or character',
+      'sheets in Image Summon (settings → 知識庫); they will be listed here.');
+    return lines.join('\n');
+  }
+  lines.push('The user keeps reusable image knowledge here. **Before generating, check whether an item matches the request**',
+    '(e.g. anything for their company → the brand/logo item) and follow it. Read an item with `resources/read` on its',
+    'URI (relative to this skill). Attached images can be passed to `generate_image` in `input_images` by local path.', '');
+  for (const it of items) {
+    lines.push(`### ${it.name}`, '', it.description || '(no description)', '', `- Read: \`knowledge/${it.name}/${ITEM_FILE}\``);
+    for (const f of it.files) lines.push(`- Attachment \`knowledge/${it.name}/${f}\` — local path: \`${localPath(it.name, f)}\``);
+    lines.push('');
+  }
+  return lines.join('\n').trimEnd();
+}
+
+function skillMd(items: KnowledgeSummary[]): string {
+  return `---
 name: ${BUILTIN_SKILL}
-description: Generate or edit images with the local Image Summon MCP server (generate_image / get_image_job). Use whenever the user wants an illustration, icon, banner, mock-up, photo, texture or any other picture created or modified, or wants generated art saved into their project.
+description: ${JSON.stringify(skillDescription(items))}
 ---
 
 # Image Summon
@@ -80,44 +112,44 @@ timeouts, call \`generate_image\` with \`async: true\`, then poll \`get_image_jo
 - A failed result includes the provider's error detail — summarize it for the user; content-policy refusals need
   a reworded prompt, not a retry.
 
-## More skills
-
-The user can add their own skills (style guides, brand rules, recurring art directions) in Image Summon's skills
-folder; they appear in this same catalog. If one matches the request, follow it together with this skill.
+${knowledgeSection(items)}
 `;
+}
 
 function builtinFiles(serverUrl: string): Record<string, string> {
   return {
-    [`${BUILTIN_SKILL}/SKILL.md`]: SKILL_MD,
+    [`${BUILTIN_SKILL}/SKILL.md`]: skillMd(listKnowledge()),
     [`${BUILTIN_SKILL}/references/generator.md`]: describeSpec(currentCapabilities(), serverUrl),
   };
 }
 
-export function userSkillsDir(): string {
-  return path.join(app.getPath('userData'), 'skills');
-}
+const KNOWLEDGE_MOUNT = `${BUILTIN_SKILL}/knowledge`;
 
-/** Built-in skills in memory plus the user's skills folder, as one storage tree. */
-function mergedFiles(builtin: SkillFiles, userDir: string): SkillFiles {
-  const isBuiltin = (p: string) => p === BUILTIN_SKILL || p.startsWith(BUILTIN_SKILL + '/');
-  const user = nodeSkillFiles(userDir);
-  const userList = async (dir: string): Promise<SkillFileEntry[]> => {
-    try { return await user.list(dir); } catch (e: any) {
-      if (e?.code === 'ENOENT') return [];
-      throw e;
-    }
-  };
+/**
+ * One storage tree for the catalog: the built-in files in memory, with the user's knowledge folder
+ * mounted at image-summon/knowledge. Only folders that look like knowledge items are exposed, and no
+ * SKILL.md can appear below the mount, so the user's content never becomes a separate skill.
+ */
+function mergedFiles(builtin: SkillFiles, dir: string): SkillFiles {
+  const disk = nodeSkillFiles(dir);
+  const items = () => new Set(listKnowledge().map((i) => i.name));
+  const underMount = (p: string) => p === KNOWLEDGE_MOUNT || p.startsWith(KNOWLEDGE_MOUNT + '/');
+  const rel = (p: string) => p.slice(KNOWLEDGE_MOUNT.length + 1);
   return {
-    async list(dir) {
-      if (dir === '') {
-        const own = await builtin.list('');
-        const extra = (await userList('')).filter((e) => e.name !== BUILTIN_SKILL);
-        return [...own, ...extra];
+    async list(d) {
+      if (d === BUILTIN_SKILL) {
+        const own = await builtin.list(d);
+        return items().size ? [...own, { name: 'knowledge', kind: 'directory' } as SkillFileEntry] : own;
       }
-      return isBuiltin(dir) ? builtin.list(dir) : userList(dir);
+      if (d === KNOWLEDGE_MOUNT) return [...items()].map((name) => ({ name, kind: 'directory' } as SkillFileEntry));
+      if (underMount(d)) {
+        const entries = await disk.list(rel(d)).catch((e: any) => { if (e?.code === 'ENOENT') return []; throw e; });
+        return entries.filter((e) => e.name !== 'SKILL.md');
+      }
+      return builtin.list(d);
     },
     read(p) {
-      return isBuiltin(p) ? builtin.read(p) : user.read(p);
+      return underMount(p) ? disk.read(rel(p)) : builtin.read(p);
     },
   };
 }
@@ -135,7 +167,7 @@ class SkillHub {
 
   async init(serverUrl: string): Promise<void> {
     this.serverUrl = serverUrl;
-    const dir = userSkillsDir();
+    const dir = knowledgeDir();
     try { fs.mkdirSync(dir, { recursive: true }); } catch { /* ignore */ }
     Object.assign(this.record, builtinFiles(serverUrl));
     this.warnings = [];
@@ -149,14 +181,16 @@ class SkillHub {
     return this.catalog;
   }
 
-  entries() {
-    return (this.catalog?.entries ?? []).map((s) => ({
+  /** What agents get: the skill entry with every published file. */
+  published() {
+    const s = (this.catalog?.entries ?? []).find((e) => e.frontmatter.name === BUILTIN_SKILL);
+    if (!s) return undefined;
+    return {
       uri: s.uri,
       name: s.frontmatter.name,
       description: s.frontmatter.description,
-      files: Array.isArray(s.resources) ? s.resources.length : 0,
-      builtin: s.uri.startsWith(`skill://${BUILTIN_SKILL}/`),
-    }));
+      files: Array.isArray(s.resources) ? s.resources.map((r) => ({ uri: r.uri, size: r.size })) : [],
+    };
   }
 
   /** Rescan (user folder edits) and regenerate the built-in generator reference. Serialized. */
@@ -172,7 +206,7 @@ class SkillHub {
         const changes = await this.catalog.reload();
         if (changes.listChanged) this.onListChanged?.();
       } catch (e: any) {
-        this.warnings.push({ path: userSkillsDir(), message: e?.message ?? String(e) });
+        this.warnings.push({ path: knowledgeDir(), message: e?.message ?? String(e) });
         console.warn('[skills] reload failed', e);
       }
     };

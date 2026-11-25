@@ -184,3 +184,5 @@ textarea.mono { font-family: "Cascadia Code", Consolas, monospace; font-size: 12
 #sk-list > div { margin: 4px 0; }
 #sk-warn { color: var(--err); white-space: pre-wrap; margin: 6px 0; }
 @media (max-width: 760px) { .skills-layout { grid-template-columns: 1fr; } }
+.sk-child { margin-left: 10px; }
+.sk-tree { font-family: "Cascadia Code", Consolas, monospace; font-size: 12px; color: var(--muted); margin: 4px 0 8px 18px; max-height: 180px; overflow-y: auto; }
