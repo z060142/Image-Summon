@@ -1,6 +1,6 @@
 # Image Summon
 
-常駐 Windows 系統匣的 AI 圖片生成器，以 **MCP（協議版本 2026-07-28，並相容 2025-11-25 及更早的 client）** 提供給 Claude Desktop、Claude Code 及任何 MCP agent 使用，並透過 **MCP Skills 擴充**把使用說明與自訂技能發給 agent。所有 agent 都連到同一個常駐實例，直接取得生成好的圖片（檔案路徑 + 預覽圖）。
+常駐 Windows 系統匣的 AI 圖片生成器，以 **MCP（協議版本 2026-07-28，並相容 2025-11-25 及更早的 client）** 提供給 Claude Desktop、Claude Code 及任何 MCP agent 使用，並透過 **MCP Skills 擴充**發佈一個 `image-summon` 技能（使用說明、生成器規格與使用者的知識庫）。所有 agent 都連到同一個常駐實例，直接取得生成好的圖片（檔案路徑 + 預覽圖）。
 
 ```
 Claude Code ──(Streamable HTTP)──────────────┐
