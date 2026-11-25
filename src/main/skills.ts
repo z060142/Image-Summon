@@ -98,6 +98,10 @@ Prefer one clear image per call over a collage. For UI assets ask for "centered,
 - **Codex mode** has no size/aspect parameters — describe the framing ("wide 16:9 banner") in the prompt.
   It does support \`background: transparent\` natively (real alpha PNG): describe only the isolated subject and
   leave out any backdrop, floor or scene, or the background may come back opaque. Check the result for warnings.
+  Alpha note: Codex's cut-out usually leaves the "solid" subject slightly translucent (alpha ≈ 250–254, i.e.
+  98–99 % opaque) rather than fully opaque, plus a soft semi-transparent edge/glow. It is invisible on light
+  backgrounds but can show faintly on dark ones. Mention this when the asset is for a dark UI or will be stacked;
+  if the user needs a perfectly solid subject, suggest flattening alpha (e.g. alpha ≥ 250 → 255) in an image editor.
 
 ## Long generations
 

@@ -98,46 +98,6 @@ export function pngAlphaStats(buf: Buffer): AlphaStats | null {
   }
 }
 
-/**
- * Snap near-opaque alpha (>= threshold) to 255. Generators often leave the "solid" subject at
- * alpha 250–254, which shows faintly see-through on dark backgrounds. Returns the original buffer
- * when nothing changes or the layout isn't supported (8-bit RGBA / gray+alpha, non-interlaced).
- */
-export function snapNearOpaqueAlpha(buf: Buffer, threshold = 250): Buffer {
-  const cs = chunks(buf);
-  if (!cs) return buf;
-  let px: ReturnType<typeof decodeAlphaPixels>;
-  try { px = decodeAlphaPixels(cs); } catch { return buf; }
-  if (!px) return buf;
-  let changed = 0;
-  for (let i = px.bpp - 1; i < px.raw.length; i += px.bpp) {
-    const al = px.raw[i];
-    if (al >= threshold && al < 255) { px.raw[i] = 255; changed++; }
-  }
-  if (!changed) return buf;
-  const stride = px.width * px.bpp;
-  const filtered = Buffer.alloc((stride + 1) * px.height); // filter 0 (None) per row
-  for (let y = 0; y < px.height; y++) px.raw.copy(filtered, y * (stride + 1) + 1, y * stride, (y + 1) * stride);
-  const idat = zlib.deflateSync(filtered, { level: 6 });
-  const crcTable = new Int32Array(256).map((_, n) => { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1; return c; });
-  const chunk = (type: string, data: Buffer) => {
-    const td = Buffer.concat([Buffer.from(type, 'ascii'), data]);
-    let c = -1;
-    for (const b of td) c = crcTable[(c ^ b) & 0xff] ^ (c >>> 8);
-    const out = Buffer.alloc(12 + data.length);
-    out.writeUInt32BE(data.length, 0); td.copy(out, 4); out.writeUInt32BE((c ^ -1) >>> 0, 8 + data.length);
-    return out;
-  };
-  // keep every ancillary chunk (IHDR, gAMA, iCCP, …) in place; replace all IDATs with one
-  const parts: Buffer[] = [buf.subarray(0, 8)];
-  let wroteIdat = false;
-  for (const c of cs) {
-    if (c.type === 'IDAT') { if (!wroteIdat) { parts.push(chunk('IDAT', idat)); wroteIdat = true; } continue; }
-    parts.push(buf.subarray(c.start, c.end));
-  }
-  return Buffer.concat(parts);
-}
-
 /** Whether the image (PNG or WebP) may carry transparency — used to pick a PNG preview instead of JPEG. */
 export function mayHaveAlpha(buf: Buffer): boolean {
   if (buf.length >= 12 && buf.toString('ascii', 0, 4) === 'RIFF' && buf.toString('ascii', 8, 12) === 'WEBP') return true;

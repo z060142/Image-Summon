@@ -3,7 +3,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { settings } from '../config';
-import { pngAlphaStats, snapNearOpaqueAlpha } from '../png';
+import { pngAlphaStats } from '../png';
 import { GenImage, GenRequest, GenResult, Provider, ProviderError, sniffMime } from './common';
 
 const IMG_RE = /\.(png|jpe?g|webp)$/i;
@@ -184,10 +184,8 @@ export class CodexProvider implements Provider {
     if (!files.length) throw new ProviderError('codex 執行完成但找不到生成的圖片', undefined, (finalText + '\n' + log).slice(-3000));
 
     const images: GenImage[] = files.slice(-n).map((f) => {
-      let data: Buffer = fs.readFileSync(f);
-      const mime = sniffMime(data);
-      if (req.background === 'transparent' && mime === 'image/png') data = snapNearOpaqueAlpha(data);
-      return { data, mime };
+      const data = fs.readFileSync(f);
+      return { data, mime: sniffMime(data) };
     });
     const warnings = req.background === 'transparent' ? checkTransparency(images) : [];
     return { images, model: cfg.model.trim() ? `codex (${cfg.model.trim()})` : 'codex imagegen', text: finalText, warnings };
