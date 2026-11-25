@@ -13,6 +13,7 @@ import { cancelOpenRouterLogin, installOAuthRoute, startOpenRouterLogin } from '
 import { codexStatus, detectCodex } from './providers/codex';
 import { cacheAge, getCachedModels, keyInfo, refreshModels } from './providers/openrouter';
 import { HttpHost } from './server';
+import { skills, userSkillsDir } from './skills';
 import { MODE_LABEL } from './spec';
 
 const RUN_KEY_NAME = 'ImageSummon';
@@ -46,6 +47,13 @@ async function boot() {
 
   host = new HttpHost({ version: VERSION });
   installOAuthRoute(host);
+  // Skills over MCP: must be loaded before any MCP server instance is created (attach happens per instance).
+  try {
+    await skills.init(`http://127.0.0.1:${settings.get().general.port}/mcp`);
+  } catch (e) {
+    console.error('[skills] init failed', e);
+  }
+  skills.onListChanged = () => host.broadcastResourcesChanged();
   await startServer();
 
   createTray();
@@ -67,13 +75,16 @@ async function boot() {
       || JSON.stringify(s.openrouter.defaults) !== JSON.stringify(prev.openrouter.defaults) || s.openrouter.keyEnc !== prev.openrouter.keyEnc
       || s.codex.model !== prev.codex.model) {
       host.broadcastToolsChanged();
+      skills.reload(host.mcpUrl); // refresh the built-in skill's generator reference
+    } else if (s.general.port !== prev.general.port) {
+      skills.reload(host.mcpUrl);
     }
     updateTray();
     send('settings:changed');
   });
 
   // keep the OpenRouter model catalogue fresh (needed for the dynamic tool schema)
-  if (cacheAge() > 12 * 3600_000) refreshModels().then(() => host.broadcastToolsChanged()).catch(() => {});
+  if (cacheAge() > 12 * 3600_000) refreshModels().then(() => { host.broadcastToolsChanged(); skills.reload(); }).catch(() => {});
 
   const hidden = process.argv.includes('--hidden');
   if (first || !hidden) openSettings();
@@ -276,7 +287,7 @@ function registerIpc() {
   h('openrouter:logout', () => { settings.update({ openrouter: { keyEnc: '', keySource: undefined } }); return viewSettings(); });
   h('openrouter:models', async (refresh: boolean) => {
     const models = refresh || !getCachedModels().length ? await refreshModels() : getCachedModels();
-    if (refresh) host.broadcastToolsChanged();
+    if (refresh) { host.broadcastToolsChanged(); skills.reload(); }
     return models;
   });
   h('openrouter:keyInfo', () => keyInfo());
@@ -292,6 +303,16 @@ function registerIpc() {
     target === 'desktop' ? installClaudeDesktop(host.mcpUrl) : installClaudeCode(host.mcpUrl));
   h('integrations:uninstall', async (target: 'desktop' | 'code') =>
     target === 'desktop' ? uninstallClaudeDesktop() : uninstallClaudeCode());
+
+  h('skills:list', () => ({ dir: userSkillsDir(), skills: skills.entries(), warnings: skills.warnings }));
+  h('skills:reload', async () => {
+    await skills.reload();
+    return { dir: userSkillsDir(), skills: skills.entries(), warnings: skills.warnings };
+  });
+  h('skills:openDir', () => {
+    fs.mkdirSync(userSkillsDir(), { recursive: true });
+    return shell.openPath(userSkillsDir());
+  });
 
   h('jobs:list', () => jobs.list().slice(0, 50).map((j) => ({
     ...publicJob(j),

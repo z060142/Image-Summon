@@ -360,11 +360,12 @@ async function loadInfo() {
   const cl = $('#clients');
   cl.innerHTML = '';
   if (!info.clients.length) cl.textContent = '目前沒有連線';
-  for (const c of info.clients) cl.append(h('div', {}, `• ${c.client}`, h('span', { class: 'muted small' }, `  最後活動 ${new Date(c.lastSeen).toLocaleTimeString()}`)));
+  for (const c of info.clients) cl.append(h('div', {}, `• ${c.client}`, h('span', { class: 'muted small' }, `  MCP ${c.protocol || ''} · 最後活動 ${new Date(c.lastSeen).toLocaleTimeString()}`)));
 }
 
 async function loadIntegrations() {
   await loadInfo();
+  loadSkills();
   $('#cc-state').textContent = '檢查中…';
   try {
     const st = await api('integrations:status');
@@ -383,6 +384,25 @@ $('#cc-install').onclick = (e) => guard(e.target, async () => { await api('integ
 $('#cc-remove').onclick = (e) => guard(e.target, async () => { await api('integrations:uninstall', 'code'); toast('已從 Claude Code 移除'); loadIntegrations(); });
 $('#cd-install').onclick = (e) => guard(e.target, async () => { await api('integrations:install', 'desktop'); toast('已寫入 Claude Desktop 設定，請重新啟動 Claude Desktop'); loadIntegrations(); });
 $('#cd-remove').onclick = (e) => guard(e.target, async () => { await api('integrations:uninstall', 'desktop'); toast('已從 Claude Desktop 設定移除'); loadIntegrations(); });
+
+// ---------------- skills (MCP Skills extension) ----------------
+function renderSkills(r) {
+  $('#sk-dir').textContent = r.dir;
+  $('#sk-state').className = 'chip ' + (r.warnings.length ? 'warn' : 'ok');
+  $('#sk-state').textContent = `${r.skills.length} 個技能` + (r.warnings.length ? `・${r.warnings.length} 個警告` : '');
+  const list = $('#sk-list');
+  list.innerHTML = '';
+  for (const s of r.skills) {
+    list.append(h('div', {}, `${s.builtin ? '★' : '•'} `, h('b', {}, s.name), h('span', { class: 'muted' }, `  ${s.uri}（${s.files} 個檔案）`),
+      h('div', { class: 'muted' }, s.description)));
+  }
+  $('#sk-warn').textContent = r.warnings.map((w) => `⚠ ${w.path}: ${w.message}`).join('\n');
+}
+async function loadSkills() {
+  try { renderSkills(await api('skills:list')); } catch (e) { toast(e.message, true); }
+}
+$('#sk-open').onclick = () => api('skills:openDir');
+$('#sk-reload').onclick = (e) => guard(e.target, async () => { renderSkills(await api('skills:reload')); toast('已重新載入技能，已通知連線中的 agent'); });
 
 // ---------------- jobs ----------------
 const STATUS = { queued: '⏳ 排隊中', running: '⟳ 生成中', done: '✓ 完成', error: '✗ 失敗', cancelled: '⊘ 已取消' };

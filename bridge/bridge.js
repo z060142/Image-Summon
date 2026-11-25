@@ -9,7 +9,9 @@
  *   ImageSummon.exe bridge.js [http://127.0.0.1:47821/mcp]   (with ELECTRON_RUN_AS_NODE=1)
  *   node bridge.js [url]
  *
- * - Keeps Mcp-Session-Id / MCP-Protocol-Version headers.
+ * - Keeps Mcp-Session-Id / MCP-Protocol-Version headers (2025-era sessions).
+ * - 2026-07-28 clients (per-request `_meta` envelope, no session): adds the standard
+ *   MCP-Protocol-Version / Mcp-Method / Mcp-Name headers (SEP-2243) for each message.
  * - Parses JSON or SSE responses; opens the GET SSE stream for server notifications
  *   (tools/list_changed when the user switches generator).
  * - If the tray app was restarted (session 404), transparently re-initializes.
@@ -36,9 +38,33 @@ function errorFor(msg, message, code = -32000) {
 }
 
 function headers(extra) {
-  const h = { 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream', ...extra };
+  const h = { 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream' };
   if (sessionId) h['Mcp-Session-Id'] = sessionId;
   if (protocolVersion) h['MCP-Protocol-Version'] = protocolVersion;
+  return Object.assign(h, extra);
+}
+
+const PROTOCOL_VERSION_META_KEY = 'io.modelcontextprotocol/protocolVersion';
+// Which body field the Mcp-Name header mirrors, per method (SEP-2243).
+const NAME_SOURCE = { 'tools/call': 'name', 'prompts/get': 'name', 'resources/read': 'uri', 'tasks/get': 'taskId', 'tasks/update': 'taskId', 'tasks/cancel': 'taskId' };
+
+function headerValue(v) {
+  // Header-safe values go as-is; anything else uses the =?base64?…?= sentinel (UTF-8).
+  return /^[\x20-\x7e]*$/.test(v) && v.trim() === v ? v : '=?base64?' + Buffer.from(v, 'utf8').toString('base64') + '?=';
+}
+
+/** Standard headers for a 2026-07-28 message (identified by its _meta envelope); {} for 2025-era traffic. */
+function modernHeaders(msg) {
+  const meta = msg && msg.params && msg.params._meta;
+  const version = meta && meta[PROTOCOL_VERSION_META_KEY];
+  if (typeof version !== 'string') return {};
+  const h = { 'MCP-Protocol-Version': version };
+  if (msg.method && msg.id !== undefined && msg.id !== null) {
+    h['Mcp-Method'] = headerValue(msg.method);
+    const src = NAME_SOURCE[msg.method];
+    const name = src && msg.params[src];
+    if (typeof name === 'string') h['Mcp-Name'] = headerValue(name);
+  }
   return h;
 }
 
@@ -67,7 +93,7 @@ function emitPayload(text, sink) {
 async function post(msg, sink = write, allowReinit = true) {
   let res;
   try {
-    res = await fetch(URL_, { method: 'POST', headers: headers(), body: JSON.stringify(msg) });
+    res = await fetch(URL_, { method: 'POST', headers: headers(modernHeaders(msg)), body: JSON.stringify(msg) });
   } catch (e) {
     errorFor(msg, `Image Summon 沒有在執行（${URL_}）。請從開始功能表啟動 Image Summon。`);
     return;

@@ -187,6 +187,14 @@
         <div id="cd-files" class="small muted"></div>
         <details class="sub"><summary>手動設定 JSON</summary><pre id="cd-json"></pre><button class="btn ghost" data-copy="#cd-json">複製</button></details>
       </div>
+      <div class="card">
+        <div class="card-head"><h2>Skills（透過 MCP 提供）</h2><span class="chip" id="sk-state"></span></div>
+        <p class="muted">Image Summon 以 MCP Skills 擴充（<code>io.modelcontextprotocol/skills</code>）把技能說明發給所有連線的 agent：內建的 <code>image-summon</code> 技能會教 agent 怎麼寫提示詞、選參數，並附上目前生成器的規格。你也可以把自己的技能（例如品牌風格指南）放進技能資料夾，每個技能一個子資料夾，內含 <code>SKILL.md</code>（frontmatter 需有 <code>name</code>＝資料夾名稱與 <code>description</code>）。</p>
+        <div id="sk-list" class="small"></div>
+        <div id="sk-warn" class="small err"></div>
+        <div class="row wrap"><button class="btn" id="sk-open">開啟技能資料夾</button><button class="btn ghost" id="sk-reload">重新載入</button></div>
+        <div class="row"><code class="url" id="sk-dir"></code></div>
+      </div>
     </section>
 
     <!-- ============ 紀錄 ============ -->

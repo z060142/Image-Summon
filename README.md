@@ -1,6 +1,6 @@
 # Image Summon
 
-常駐 Windows 系統匣的 AI 圖片生成器，以 **MCP（協議版本 2025-11-25）** 提供給 Claude Desktop、Claude Code 及任何 MCP agent 使用。所有 agent 都連到同一個常駐實例，直接取得生成好的圖片（檔案路徑 + 預覽圖）。
+常駐 Windows 系統匣的 AI 圖片生成器，以 **MCP（協議版本 2026-07-28，並相容 2025-11-25 及更早的 client）** 提供給 Claude Desktop、Claude Code 及任何 MCP agent 使用，並透過 **MCP Skills 擴充**把使用說明與自訂技能發給 agent。所有 agent 都連到同一個常駐實例，直接取得生成好的圖片（檔案路徑 + 預覽圖）。
 
 ```
 Claude Code ──(Streamable HTTP)──────────────┐
@@ -33,6 +33,8 @@ Claude Desktop ──stdio──▶ bridge.js ──HTTP──▶ Image Summon�
 | b. OpenRouter | OAuth PKCE 登入（回呼到本機伺服器），金鑰以 Windows DPAPI 加密；模型清單來自 `GET /api/v1/images/models` |
 | c. 自訂 | 自訂供應商名稱、API 格式、Base URL、API Key、模型，以及可用的解析度/比例/品質 |
 | 三選一 | 設定頁的模式卡或系統匣「生成方式」選單，同一時間只有一種生效 |
+| MCP 協議 | 以 MCP TypeScript SDK v2（`@modelcontextprotocol/server` / `node`）實作。2026-07-28 client（每個請求帶 `_meta` envelope、無工作階段）走 `createMcpHandler`；2025-11-25 以前的 client 依 `isLegacyRequest` 分流到原本的有狀態工作階段（`Mcp-Session-Id`），兩種都能收到 `list_changed` |
+| Skills via MCP | 實作 MCP Skills 擴充（SEP-2640，`io.modelcontextprotocol/skills`）：`skills/list`、`skills/get`、`skill://` 資源。內建 `image-summon` 技能，另可放入自訂技能 |
 | 告知 agent 命令規格 | `generate_image` 的 inputSchema 依目前模型動態產生（`resolution` 1K/2K/4K…、`aspect_ratio`、`quality`、`n`、`input_images` 上限）；切換時送出 `notifications/tools/list_changed` |
 | 安裝檔 | electron-builder NSIS：開始功能表、桌面捷徑、解除安裝項目、開機啟動 |
 
@@ -43,6 +45,15 @@ Claude Desktop ──stdio──▶ bridge.js ──HTTP──▶ Image Summon�
   長時間生成會每 5 秒送出 `notifications/progress`，支援 `resetTimeoutOnProgress` 的 client 不會逾時。
 - **`get_image_job`**：查詢 / 等待非同步工作。
 - **`get_generator_info`**：以文字說明目前模式、模型與可用參數（也提供為 resource `image-summon://generator/spec`）。
+
+## Agent 看到的 Skills（MCP Skills 擴充）
+
+Image Summon 宣告 `io.modelcontextprotocol/skills` 擴充，支援的 client 可以用 `skills/list` 列出技能、以 `resources/read` 讀取 `skill://…` 檔案（內容附 SHA-256 摘要供 client 驗證）。
+
+- **`skill://image-summon/SKILL.md`**（內建）：教 agent 何時使用 Image Summon、怎麼寫提示詞、如何依用途選 `aspect_ratio` / `resolution`、用 `output_path` 把圖放進專案、`async` 長時間生成與錯誤處理。
+  - `skill://image-summon/references/generator.md`：目前生成器的規格，使用者切換模式/模型時會自動重新產生並通知 agent。
+- **自訂技能**：把技能資料夾放進 `%APPDATA%\image-summon\skills\<名稱>\SKILL.md`（frontmatter 需有 `name`＝資料夾名稱、`description`），例如品牌風格指南、固定的美術方向。設定頁「連接 Agent → Skills」可開啟資料夾、重新載入並查看警告；新增/移除技能時會送出 `notifications/resources/list_changed`。
+- 不支援 Skills 擴充的 client 仍可把它們當一般 resource 讀取；`generate_image` 的說明裡也會指向內建技能。
 
 範例（OpenRouter，`black-forest-labs/flux-3-image-klein`）時 agent 看到的參數：
 
@@ -77,13 +88,13 @@ npm start            # 編譯並以開發模式執行
 npm run dist         # 產生 release\Image Summon Setup <版本>.exe
 ```
 
-- `src/main/`：主程序（`main.ts` 系統匣/視窗/IPC、`server.ts` HTTP + MCP 工作階段、`mcp.ts` 工具、`spec.ts` 動態規格、`jobs.ts` 工作佇列、`providers/` 三種生成方式、`oauth.ts`、`integrations.ts`）
+- `src/main/`：主程序（`main.ts` 系統匣/視窗/IPC、`server.ts` HTTP + MCP 工作階段、`mcp.ts` 工具/資源、`skills.ts` MCP Skills 擴充、`spec.ts` 動態規格、`jobs.ts` 工作佇列、`providers/` 三種生成方式、`oauth.ts`、`integrations.ts`）
 - `renderer/`：設定頁（純 HTML/CSS/JS，contextIsolation + sandbox）
-- `bridge/bridge.js`：零相依的 stdio ↔ Streamable HTTP 橋接器
+- `bridge/bridge.js`：零相依的 stdio ↔ Streamable HTTP 橋接器（2025 工作階段與 2026-07-28 標準標頭 `MCP-Protocol-Version` / `Mcp-Method` / `Mcp-Name` 都會轉送）
 - `scripts/make-icons.mjs`：從 `assets/source/icon-art.png` 產生 `.ico`、各尺寸 PNG 與系統匣圖示（裁切、面積平均縮圖、抗鋸齒圓角遮罩、「生成中」橘點），無外部相依。原圖是用 Image Summon 自己（Codex 模式）生成的；換掉這張圖再執行 `npm run icons` 即可更新全部圖示。
 - 開發用：`electron . --capture=<資料夾>` 會把設定頁各分頁截圖到該資料夾。
 
-設定檔位於 `%APPDATA%\image-summon\settings.json`，圖片預設輸出到 `圖片\Image Summon`。
+設定檔位於 `%APPDATA%\image-summon\settings.json`，自訂技能在 `%APPDATA%\image-summon\skills\`（解除安裝時會連同 AppData 一起刪除），圖片預設輸出到 `圖片\Image Summon`。
 
 ## 已知限制
 
