@@ -54,6 +54,7 @@ $$('.nav').forEach((b) => b.addEventListener('click', () => {
   $$('.page').forEach((p) => p.classList.toggle('active', p.id === 'page-' + b.dataset.page));
   if (b.dataset.page === 'agents') loadIntegrations();
   if (b.dataset.page === 'history') loadJobs();
+  if (b.dataset.page === 'skills') loadSkillPage();
 }));
 
 document.addEventListener('click', (e) => {
@@ -360,11 +361,12 @@ async function loadInfo() {
   const cl = $('#clients');
   cl.innerHTML = '';
   if (!info.clients.length) cl.textContent = '目前沒有連線';
-  for (const c of info.clients) cl.append(h('div', {}, `• ${c.client}`, h('span', { class: 'muted small' }, `  最後活動 ${new Date(c.lastSeen).toLocaleTimeString()}`)));
+  for (const c of info.clients) cl.append(h('div', {}, `• ${c.client}`, h('span', { class: 'muted small' }, `  MCP ${c.protocol || ''} · 最後活動 ${new Date(c.lastSeen).toLocaleTimeString()}`)));
 }
 
 async function loadIntegrations() {
   await loadInfo();
+  loadSkills();
   $('#cc-state').textContent = '檢查中…';
   try {
     const st = await api('integrations:status');
@@ -383,6 +385,221 @@ $('#cc-install').onclick = (e) => guard(e.target, async () => { await api('integ
 $('#cc-remove').onclick = (e) => guard(e.target, async () => { await api('integrations:uninstall', 'code'); toast('已從 Claude Code 移除'); loadIntegrations(); });
 $('#cd-install').onclick = (e) => guard(e.target, async () => { await api('integrations:install', 'desktop'); toast('已寫入 Claude Desktop 設定，請重新啟動 Claude Desktop'); loadIntegrations(); });
 $('#cd-remove').onclick = (e) => guard(e.target, async () => { await api('integrations:uninstall', 'desktop'); toast('已從 Claude Desktop 設定移除'); loadIntegrations(); });
+
+// ---------------- skills (MCP Skills extension) ----------------
+const SKILL_TEMPLATES = {
+  style: {
+    name: 'house-style',
+    description: '我們的插畫/視覺風格指南。生成任何要給我們專案使用的插畫、橫幅、圖示或社群圖片時使用。',
+    body: `# 視覺風格指南
+
+## 整體風格
+- 媒材：扁平向量插畫，柔和的漸層，圓角造型
+- 氛圍：明亮、友善、專業
+
+## 色彩
+- 主色：#7C6CF6（紫）
+- 輔色：#2EA8F5（藍）、#3CCF8E（綠）
+- 背景：淺色、留白多
+
+## 構圖
+- 主體置中，四周保留至少 10% 留白
+- 不要文字，除非使用者明確要求
+
+## 避免
+- 寫實照片風格、過度陰影、霓虹色、雜亂背景
+
+## 範例提示詞
+> Flat vector illustration of a friendly robot holding a lightbulb, soft purple (#7C6CF6) and blue (#2EA8F5) gradients, rounded shapes, light background, generous white space`,
+  },
+  logo: {
+    name: 'company-logo',
+    description: '公司 Logo 與品牌規範。當圖片需要放上公司 Logo、或要做品牌相關素材（橫幅、簡報封面、社群貼文）時使用。',
+    body: `# 公司 Logo 使用規範
+
+Logo 檔案附在本技能的 assets/ 中（見下方附加檔案清單）。需要 Logo 時，把它的本機路徑放進 generate_image 的 input_images，並在提示詞中說明要放在哪裡。
+
+## 放置規則
+- 預設放在右下角，寬度約為畫面寬度的 12–15%
+- Logo 周圍保留至少 Logo 高度一半的淨空
+- 不可變形、旋轉、改色或加特效
+- 深色背景使用白色版本（若有附上）
+
+## 品牌色
+- 主色：#______
+- 輔色：#______
+
+## 提示詞寫法
+> ...place the attached company logo unchanged in the bottom-right corner, about 12% of the image width, with clear space around it.`,
+  },
+  character: {
+    name: 'mascot',
+    description: '吉祥物/角色設定。生成包含我們吉祥物的任何圖片時使用，確保外觀一致。',
+    body: `# 角色設定：（角色名稱）
+
+## 外觀
+- 物種/造型：
+- 主要顏色：
+- 服裝與配件：
+- 表情特徵：
+
+## 一定要保持一致的細節
+-
+
+## 參考圖
+附加檔案中的參考圖是角色的標準外觀，生成時請放進 input_images 並說明「保持角色外觀與參考圖一致」。
+
+## 避免
+- 改變角色的配色或比例`,
+  },
+};
+
+let skState = { current: null, originalName: null, readonly: false };
+
+function renderSkills(r) {
+  $('#sk-dir').textContent = r.dir;
+  const files = r.skill ? r.skill.files : [];
+  const items = new Set(files.map((f) => (/\/knowledge\/([^/]+)\//.exec(f.uri) || [])[1]).filter(Boolean));
+  const st = r.skill ? `image-summon・${items.size} 個知識項目` + (r.warnings.length ? `・${r.warnings.length} 個警告` : '') : '尚未發佈';
+  for (const id of ['#sk-state', '#sk-pub-state']) {
+    $(id).className = 'chip ' + (!r.skill || r.warnings.length ? 'warn' : 'ok');
+    $(id).textContent = st;
+  }
+  const list = $('#sk-list');
+  list.innerHTML = '';
+  if (r.skill) {
+    const total = files.reduce((a, f) => a + f.size, 0);
+    list.append(h('div', {}, '★ ', h('b', {}, r.skill.uri), h('span', { class: 'muted' }, `  ${files.length} 個檔案・${(total / 1024 / 1024).toFixed(2)} MB / 16 MB`)));
+    const tree = h('div', { class: 'sk-tree' });
+    for (const f of files) tree.append(h('div', {}, f.uri.replace(/^skill:\/\/image-summon\//, '')));
+    list.append(tree);
+  }
+  $('#sk-warn').textContent = r.warnings.map((w) => `⚠ ${w.path}: ${w.message}`).join('\n');
+}
+async function loadSkills() {
+  try { renderSkills(await api('skills:published')); } catch (e) { toast(e.message, true); }
+}
+
+async function loadSkillPage(select) {
+  const [pub, mine] = await Promise.all([api('skills:published'), api('knowledge:list')]);
+  renderSkills(pub);
+  $('#sk-count').textContent = `${mine.length} 個項目`;
+  const box = $('#sk-items');
+  box.innerHTML = '';
+  if (pub.skill) {
+    box.append(h('div', { class: 'sk-item sk-root' + (skState.readonly ? ' sel' : ''), onclick: () => openBuiltin(pub.skill) },
+      h('div', { class: 'sk-item-name' }, '★ image-summon', h('span', { class: 'tag' }, '技能')),
+      h('div', { class: 'sk-item-desc' }, '使用說明＋目前生成器規格（內建）')));
+  }
+  for (const s of mine) {
+    box.append(h('div', { class: 'sk-item sk-child' + (skState.originalName === s.name ? ' sel' : ''), onclick: () => openSkill(s.name) },
+      h('div', { class: 'sk-item-name' }, '└ ', s.name, s.files.length ? h('span', { class: 'tag' }, `${s.files.length} 個檔案`) : null),
+      h('div', { class: 'sk-item-desc' }, s.description)));
+  }
+  if (!mine.length) box.append(h('div', { class: 'muted small sk-child' }, '還沒有知識項目。'));
+  if (select) await openSkill(select);
+}
+
+function showForm(on) {
+  $('#sk-form').hidden = !on;
+  $('#sk-empty').hidden = on;
+}
+
+function renderSkillFiles(files) {
+  const box = $('#sk-files');
+  box.innerHTML = '';
+  if (!files.length) box.append(h('div', { class: 'muted small' }, '沒有附加檔案。'));
+  for (const f of files) {
+    box.append(h('div', { class: 'sk-file', title: f.abs },
+      f.thumb ? h('img', { src: f.thumb, onclick: () => api('shell:openPath', f.abs) }) : h('div', { class: 'sk-file-ph' }, '📄'),
+      h('div', { class: 'sk-file-name' }, f.path),
+      h('div', { class: 'small muted' }, `${(f.bytes / 1024).toFixed(f.bytes < 10240 ? 1 : 0)} KB`),
+      skState.readonly ? null : h('a', { class: 'danger', onclick: () => guard(null, async () => {
+        if (!confirm(`刪除 ${f.path}？`)) return;
+        const d = await api('knowledge:removeFile', skState.originalName, f.path);
+        renderSkillFiles(d.files);
+        loadSkillPage();
+      }) }, '移除')));
+  }
+}
+
+function fillForm(d, { readonly = false, isNew = false } = {}) {
+  skState = { current: d, originalName: isNew ? null : d.name, readonly };
+  showForm(true);
+  $('#sk-title').textContent = readonly ? 'image-summon 技能（內建）' : isNew ? '新增知識項目' : '編輯知識項目';
+  $('#sk-badge').textContent = readonly ? '唯讀' : isNew ? '尚未儲存' : `skill://image-summon/knowledge/${d.name}/README.md`;
+  $('#sk-badge').className = 'chip' + (readonly ? '' : isNew ? ' warn' : ' ok');
+  $('#sk-name').value = d.name;
+  $('#sk-desc').value = d.description;
+  $('#sk-body').value = d.body;
+  for (const id of ['#sk-name', '#sk-desc', '#sk-body']) $(id).readOnly = readonly;
+  $('#sk-readonly').hidden = !readonly;
+  $('#sk-readonly').textContent = readonly ? '這是 Image Summon 發給 agent 的唯一技能，內容隨 Image Summon 更新、無法編輯。references/generator.md 會跟著目前的生成器自動更新；SKILL.md 末尾會自動列出下方所有知識項目的目錄。' : '';
+  for (const id of ['#sk-delete', '#sk-open-one', '#sk-save', '#sk-cancel']) $(id).hidden = readonly;
+  $('#sk-delete').hidden = readonly || isNew;
+  $('#sk-open-one').hidden = readonly || isNew;
+  $('#sk-add-files').hidden = readonly;
+  $('#sk-add-files').disabled = isNew;
+  $('#sk-files-hint').textContent = isNew ? '先儲存項目，才能加入檔案。' : '單檔上限 8MB；整個技能（含所有項目）上限 16MB。';
+  renderSkillFiles(d.files || []);
+}
+
+async function openSkill(name) {
+  await guard(null, async () => { fillForm(await api('knowledge:get', name)); loadSkillPage(); });
+}
+function openBuiltin(b) {
+  fillForm({ name: b.name, description: b.description, body: '（完整內容由 Image Summon 產生，agent 透過 skill://image-summon/SKILL.md 讀取。）', files: [] }, { readonly: true });
+  loadSkillPage();
+}
+function newSkill(tpl) {
+  const t = tpl ? SKILL_TEMPLATES[tpl] : { name: '', description: '', body: '' };
+  fillForm({ ...t, files: [] }, { isNew: true });
+  loadSkillPage(); // clear the list selection
+  $('#sk-name').focus();
+}
+
+$('#sk-new').onclick = () => newSkill();
+$$('[data-template]').forEach((b) => (b.onclick = () => newSkill(b.dataset.template)));
+$('#sk-name').addEventListener('input', (e) => {
+  // gently normalise to the allowed form while typing
+  const v = e.target.value.toLowerCase().replace(/[\s_]+/g, '-').replace(/[^a-z0-9-]/g, '');
+  if (v !== e.target.value) e.target.value = v;
+});
+$('#sk-save').onclick = (e) => guard(e.target, async () => {
+  const d = await api('knowledge:save', {
+    originalName: skState.originalName || undefined,
+    name: $('#sk-name').value.trim().replace(/^-+|-+$/g, ''),
+    description: $('#sk-desc').value,
+    body: $('#sk-body').value,
+  });
+  fillForm(d);
+  await loadSkillPage();
+  toast('已儲存，已更新 image-summon 技能並通知連線中的 agent');
+});
+$('#sk-cancel').onclick = () => {
+  if (skState.originalName) openSkill(skState.originalName);
+  else { skState = { current: null, originalName: null, readonly: false }; showForm(false); }
+};
+$('#sk-delete').onclick = (e) => guard(e.target, async () => {
+  if (!confirm(`確定要刪除知識項目「${skState.originalName}」和它的所有附加檔案嗎？`)) return;
+  await api('knowledge:delete', skState.originalName);
+  skState = { current: null, originalName: null, readonly: false };
+  showForm(false);
+  await loadSkillPage();
+  toast('已刪除知識項目');
+});
+$('#sk-add-files').onclick = (e) => guard(e.target, async () => {
+  const d = await api('knowledge:addFiles', skState.originalName);
+  renderSkillFiles(d.files);
+  loadSkillPage();
+});
+$('#sk-open-one').onclick = () => api('knowledge:openItemDir', skState.originalName);
+$('#sk-open').onclick = () => api('knowledge:openDir');
+$('#sk-reload').onclick = (e) => guard(e.target, async () => { await api('skills:reload'); await loadSkillPage(); toast('已重新載入，已通知連線中的 agent'); });
+document.addEventListener('click', (e) => {
+  const g = e.target.closest('[data-goto]');
+  if (g) $(`.nav[data-page="${g.dataset.goto}"]`).click();
+});
 
 // ---------------- jobs ----------------
 const STATUS = { queued: '⏳ 排隊中', running: '⟳ 生成中', done: '✓ 完成', error: '✗ 失敗', cancelled: '⊘ 已取消' };

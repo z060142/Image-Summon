@@ -29,6 +29,8 @@ export interface GenResult {
   model: string;
   text?: string;
   costUsd?: number;
+  /** Non-fatal problems to surface to the agent (e.g. transparency requested but not delivered). */
+  warnings?: string[];
 }
 
 export interface Provider {

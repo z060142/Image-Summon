@@ -1,17 +1,21 @@
-import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
-import { Server } from '@modelcontextprotocol/sdk/server/index.js';
-import { isInitializeRequest } from '@modelcontextprotocol/sdk/types.js';
+import { NodeStreamableHTTPServerTransport, toNodeHandler, toWebRequest } from '@modelcontextprotocol/node';
+import { createMcpHandler, isInitializeRequest, isLegacyRequest, McpHttpHandler } from '@modelcontextprotocol/server';
 import { randomUUID } from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import * as http from 'node:http';
-import { createMcpServer, McpContext } from './mcp';
+import { createMcpServer, ImageSummonServer, McpContext } from './mcp';
 import { currentCapabilities, jobs } from './jobs';
+
+const MAX_BODY = 64 * 1024 * 1024; // input_images may be sent inline as data: URLs
+const MODERN_CLIENT_TTL = 15 * 60_000;
+const CLIENT_INFO_META_KEY = 'io.modelcontextprotocol/clientInfo';
 
 type RouteHandler = (req: http.IncomingMessage, res: http.ServerResponse, url: URL) => void | Promise<void>;
 
+/** A stateful 2025-era session (Mcp-Session-Id), e.g. Claude Desktop via bridge.js or Claude Code today. */
 interface Session {
-  transport: StreamableHTTPServerTransport;
-  server: Server;
+  transport: NodeStreamableHTTPServerTransport;
+  server: ImageSummonServer;
   client?: string;
   lastSeen: number;
 }
@@ -20,11 +24,19 @@ export class HttpHost extends EventEmitter {
   private http?: http.Server;
   private sessions = new Map<string, Session>();
   private routes = new Map<string, RouteHandler>();
+  /** 2026-07-28 clients are stateless (per-request envelope); remember who called recently for the UI. */
+  private modernClients = new Map<string, number>();
+  private modern?: McpHttpHandler;
+  private modernNode?: ReturnType<typeof toNodeHandler>;
   private reaper?: NodeJS.Timeout;
   port = 0;
 
   constructor(private ctx: Omit<McpContext, 'serverUrl'>) {
     super();
+  }
+
+  private newServer(): ImageSummonServer {
+    return createMcpServer({ ...this.ctx, serverUrl: () => this.mcpUrl });
   }
 
   get mcpUrl() {
@@ -36,7 +48,11 @@ export class HttpHost extends EventEmitter {
   }
 
   clients() {
-    return [...this.sessions.entries()].map(([id, s]) => ({ id, client: s.client ?? '(未知)', lastSeen: s.lastSeen }));
+    const legacy = [...this.sessions.entries()].map(([id, s]) => ({ id, client: s.client ?? '(未知)', lastSeen: s.lastSeen, protocol: '2025-11-25' }));
+    const cutoff = Date.now() - MODERN_CLIENT_TTL;
+    const modern = [...this.modernClients.entries()].filter(([, t]) => t >= cutoff)
+      .map(([client, lastSeen]) => ({ id: `modern:${client}`, client, lastSeen, protocol: '2026-07-28' }));
+    return [...legacy, ...modern];
   }
 
   async start(port: number): Promise<void> {
@@ -59,6 +75,13 @@ export class HttpHost extends EventEmitter {
       srv.listen(port, '127.0.0.1', () => { srv.off('error', reject); resolve(); });
     });
     this.http = srv;
+    // 2026-07-28 leg: per-request servers; legacy traffic is routed to our own sessionful wiring below.
+    this.modern = createMcpHandler(() => this.newServer().mcp, {
+      legacy: 'reject',
+      maxRequestBodySize: MAX_BODY,
+      onerror: (e) => console.error('[mcp] modern', e),
+    });
+    this.modernNode = toNodeHandler(this.modern, { maxRequestBodySize: MAX_BODY, onerror: (e) => console.error('[mcp] adapter', e) });
     this.reaper = setInterval(() => this.reap(), 10 * 60_000);
     this.emit('clients');
   }
@@ -68,6 +91,12 @@ export class HttpHost extends EventEmitter {
     for (const [id, s] of this.sessions) {
       try { await s.transport.close(); } catch { /* ignore */ }
       this.sessions.delete(id);
+    }
+    if (this.modern) {
+      const m = this.modern;
+      this.modern = undefined;
+      this.modernNode = undefined;
+      try { await m.close(); } catch { /* ignore */ }
     }
     if (this.http) {
       const h = this.http;
@@ -79,11 +108,15 @@ export class HttpHost extends EventEmitter {
   /** Tell every connected agent that the tool schema changed (mode/model switched). */
   async broadcastToolsChanged() {
     for (const s of this.sessions.values()) {
-      try {
-        await s.server.sendToolListChanged();
-        await s.server.sendResourceListChanged();
-      } catch { /* client may not have a GET stream open */ }
+      try { s.server.refresh(); } catch { /* client may not have a GET stream open */ }
     }
+    this.modern?.notify.toolsChanged();
+  }
+
+  /** Tell agents that the resource list changed (skills added/removed/renamed). */
+  broadcastResourcesChanged() {
+    // stateful sessions are notified by the skills catalog itself; stateless clients via subscriptions/listen
+    this.modern?.notify.resourcesChanged();
   }
 
   private reap() {
@@ -94,6 +127,8 @@ export class HttpHost extends EventEmitter {
         this.sessions.delete(id);
       }
     }
+    const modernCutoff = Date.now() - MODERN_CLIENT_TTL;
+    for (const [c, t] of this.modernClients) if (t < modernCutoff) this.modernClients.delete(c);
     this.emit('clients');
   }
 
@@ -138,10 +173,9 @@ export class HttpHost extends EventEmitter {
   }
 
   private async handleMcp(req: http.IncomingMessage, res: http.ServerResponse) {
-    const sid = req.headers['mcp-session-id'] as string | undefined;
     let body: unknown;
     if (req.method === 'POST') {
-      const raw = await readBody(req, 64 * 1024 * 1024);
+      const raw = await readBody(req, MAX_BODY);
       try { body = JSON.parse(raw); } catch {
         res.writeHead(400, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ jsonrpc: '2.0', error: { code: -32700, message: 'Parse error' }, id: null }));
@@ -149,6 +183,32 @@ export class HttpHost extends EventEmitter {
       }
     }
 
+    // Era routing: 2026-07-28 requests carry a per-request _meta envelope; everything else is 2025-era.
+    const webReq = await toWebRequest(req, body, { maxRequestBodySize: MAX_BODY });
+    if (!(await isLegacyRequest(webReq, body, { maxRequestBodySize: MAX_BODY }))) {
+      this.noteModernClient(body);
+      if (!this.modernNode) throw new Error('MCP handler not running');
+      await this.modernNode(req, res, body);
+      return;
+    }
+    await this.handleLegacy(req, res, body);
+  }
+
+  private noteModernClient(body: unknown) {
+    const msgs = Array.isArray(body) ? body : [body];
+    for (const m of msgs) {
+      const info = (m as any)?.params?._meta?.[CLIENT_INFO_META_KEY];
+      if (!info?.name) continue;
+      const name = `${info.title ?? info.name} ${info.version ?? ''}`.trim();
+      const fresh = !this.modernClients.has(name);
+      this.modernClients.set(name, Date.now());
+      if (fresh) this.emit('clients');
+    }
+  }
+
+  /** 2025-11-25 and older: keep stateful sessions so list_changed reaches clients over the GET stream. */
+  private async handleLegacy(req: http.IncomingMessage, res: http.ServerResponse, body: unknown) {
+    const sid = req.headers['mcp-session-id'] as string | undefined;
     let session = sid ? this.sessions.get(sid) : undefined;
     if (sid && !session) {
       res.writeHead(404, { 'Content-Type': 'application/json' });
@@ -162,13 +222,13 @@ export class HttpHost extends EventEmitter {
         res.end(JSON.stringify({ jsonrpc: '2.0', error: { code: -32000, message: 'Bad Request: missing session or not an initialize request' }, id: null }));
         return;
       }
-      const server = createMcpServer({ ...this.ctx, serverUrl: () => this.mcpUrl });
+      const server = this.newServer();
       const clientInfo = (body as any)?.params?.clientInfo;
       const fresh: Session = {
         server,
         client: clientInfo ? `${clientInfo.title ?? clientInfo.name} ${clientInfo.version ?? ''}`.trim() : undefined,
         lastSeen: Date.now(),
-        transport: new StreamableHTTPServerTransport({
+        transport: new NodeStreamableHTTPServerTransport({
           sessionIdGenerator: () => randomUUID(),
           onsessioninitialized: (id) => { this.sessions.set(id, fresh); this.emit('clients'); },
           onsessionclosed: (id) => { this.sessions.delete(id); this.emit('clients'); },
@@ -178,7 +238,7 @@ export class HttpHost extends EventEmitter {
         const id = fresh.transport.sessionId;
         if (id && this.sessions.get(id) === fresh) { this.sessions.delete(id); this.emit('clients'); }
       };
-      await server.connect(fresh.transport);
+      await server.mcp.connect(fresh.transport);
       session = fresh;
     }
     session.lastSeen = Date.now();

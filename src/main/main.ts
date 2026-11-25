@@ -13,6 +13,8 @@ import { cancelOpenRouterLogin, installOAuthRoute, startOpenRouterLogin } from '
 import { codexStatus, detectCodex } from './providers/codex';
 import { cacheAge, getCachedModels, keyInfo, refreshModels } from './providers/openrouter';
 import { HttpHost } from './server';
+import { addItemFiles, deleteItem, getItem, knowledgeDir, listKnowledge, removeItemFile, saveItem } from './knowledge';
+import { skills } from './skills';
 import { MODE_LABEL } from './spec';
 
 const RUN_KEY_NAME = 'ImageSummon';
@@ -46,6 +48,13 @@ async function boot() {
 
   host = new HttpHost({ version: VERSION });
   installOAuthRoute(host);
+  // Skills over MCP: must be loaded before any MCP server instance is created (attach happens per instance).
+  try {
+    await skills.init(`http://127.0.0.1:${settings.get().general.port}/mcp`);
+  } catch (e) {
+    console.error('[skills] init failed', e);
+  }
+  skills.onListChanged = () => host.broadcastResourcesChanged();
   await startServer();
 
   createTray();
@@ -67,13 +76,16 @@ async function boot() {
       || JSON.stringify(s.openrouter.defaults) !== JSON.stringify(prev.openrouter.defaults) || s.openrouter.keyEnc !== prev.openrouter.keyEnc
       || s.codex.model !== prev.codex.model) {
       host.broadcastToolsChanged();
+      skills.reload(host.mcpUrl); // refresh the built-in skill's generator reference
+    } else if (s.general.port !== prev.general.port) {
+      skills.reload(host.mcpUrl);
     }
     updateTray();
     send('settings:changed');
   });
 
   // keep the OpenRouter model catalogue fresh (needed for the dynamic tool schema)
-  if (cacheAge() > 12 * 3600_000) refreshModels().then(() => host.broadcastToolsChanged()).catch(() => {});
+  if (cacheAge() > 12 * 3600_000) refreshModels().then(() => { host.broadcastToolsChanged(); skills.reload(); }).catch(() => {});
 
   const hidden = process.argv.includes('--hidden');
   if (first || !hidden) openSettings();
@@ -199,13 +211,13 @@ function devCapture(w: BrowserWindow, dir: string) {
       fs.writeFileSync(path.join(dir, `gen-${mode}-2.png`), (await w.webContents.capturePage()).toPNG());
       await w.webContents.executeJavaScript(`document.querySelector('main').scrollTop = 0`);
     }
-    for (const page of ['agents', 'history', 'general']) {
+    for (const page of ['agents', 'skills', 'history', 'general']) {
       await w.webContents.executeJavaScript(`document.querySelector('.nav[data-page=${page}]').click()`);
       await wait(2500);
       fs.writeFileSync(path.join(dir, `${page}.png`), (await w.webContents.capturePage()).toPNG());
     }
-    // finally simulate the user picking the OpenRouter card (real save → agents get tools/list_changed)
-    await w.webContents.executeJavaScript(`document.querySelector('.nav[data-page=gen]').click(); document.querySelector('.mode[data-mode=openrouter]').click()`);
+    // read-only: never saves settings (dev and installed builds share the same settings file)
+    await w.webContents.executeJavaScript(`document.querySelector('.nav[data-page=gen]').click()`);
   });
 }
 
@@ -276,7 +288,7 @@ function registerIpc() {
   h('openrouter:logout', () => { settings.update({ openrouter: { keyEnc: '', keySource: undefined } }); return viewSettings(); });
   h('openrouter:models', async (refresh: boolean) => {
     const models = refresh || !getCachedModels().length ? await refreshModels() : getCachedModels();
-    if (refresh) host.broadcastToolsChanged();
+    if (refresh) { host.broadcastToolsChanged(); skills.reload(); }
     return models;
   });
   h('openrouter:keyInfo', () => keyInfo());
@@ -292,6 +304,29 @@ function registerIpc() {
     target === 'desktop' ? installClaudeDesktop(host.mcpUrl) : installClaudeCode(host.mcpUrl));
   h('integrations:uninstall', async (target: 'desktop' | 'code') =>
     target === 'desktop' ? uninstallClaudeDesktop() : uninstallClaudeCode());
+
+  // Knowledge base: sub-items of the built-in image-summon skill (not separate skills).
+  const published = () => ({ dir: knowledgeDir(), skill: skills.published(), warnings: skills.warnings });
+  const changed = async <T>(v: T): Promise<T> => { await skills.reload(); return v; };
+  h('skills:published', () => published());
+  h('skills:reload', async () => { await skills.reload(); return published(); });
+  h('knowledge:list', () => listKnowledge());
+  h('knowledge:get', (name: string) => getItem(name));
+  h('knowledge:save', (data: any) => changed(saveItem(data)));
+  h('knowledge:delete', (name: string) => changed(deleteItem(name)));
+  h('knowledge:addFiles', async (name: string) => {
+    const r = await dialog.showOpenDialog(win!, {
+      title: '加入檔案', properties: ['openFile', 'multiSelections'],
+      filters: [{ name: '圖片與文件', extensions: ['png', 'jpg', 'jpeg', 'webp', 'gif', 'svg', 'md', 'txt', 'json'] }, { name: '所有檔案', extensions: ['*'] }],
+    });
+    return r.canceled ? getItem(name) : changed(addItemFiles(name, r.filePaths));
+  });
+  h('knowledge:removeFile', (name: string, rel: string) => changed(removeItemFile(name, rel)));
+  h('knowledge:openItemDir', (name: string) => shell.openPath(getItem(name).dir));
+  h('knowledge:openDir', () => {
+    fs.mkdirSync(knowledgeDir(), { recursive: true });
+    return shell.openPath(knowledgeDir());
+  });
 
   h('jobs:list', () => jobs.list().slice(0, 50).map((j) => ({
     ...publicJob(j),
