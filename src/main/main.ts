@@ -211,13 +211,13 @@ function devCapture(w: BrowserWindow, dir: string) {
       fs.writeFileSync(path.join(dir, `gen-${mode}-2.png`), (await w.webContents.capturePage()).toPNG());
       await w.webContents.executeJavaScript(`document.querySelector('main').scrollTop = 0`);
     }
-    for (const page of ['agents', 'history', 'general']) {
+    for (const page of ['agents', 'skills', 'history', 'general']) {
       await w.webContents.executeJavaScript(`document.querySelector('.nav[data-page=${page}]').click()`);
       await wait(2500);
       fs.writeFileSync(path.join(dir, `${page}.png`), (await w.webContents.capturePage()).toPNG());
     }
-    // finally simulate the user picking the OpenRouter card (real save → agents get tools/list_changed)
-    await w.webContents.executeJavaScript(`document.querySelector('.nav[data-page=gen]').click(); document.querySelector('.mode[data-mode=openrouter]').click()`);
+    // read-only: never saves settings (dev and installed builds share the same settings file)
+    await w.webContents.executeJavaScript(`document.querySelector('.nav[data-page=gen]').click()`);
   });
 }
 
